@@ -24,7 +24,6 @@ GPIO_PINS       = [4, 17, 18, 22, 23, 24, 25, 27]
 
 SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
 DEFAULT_USERNAME = "pi"
-DEFAULT_PASSWORD = "Synthese734#"
 
 os.makedirs(MP3_FOLDER, exist_ok=True)
 os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
@@ -79,12 +78,16 @@ def get_auth():
     cfg = load_cfg()
     auth = cfg.get("auth", {})
     if not auth.get("username") or not auth.get("password_hash"):
+        # Erstes Start: zufälliges Passwort generieren und in den Logs ausgeben
+        first_pw = secrets.token_urlsafe(12)
         auth = {
             "username":      DEFAULT_USERNAME,
-            "password_hash": generate_password_hash(DEFAULT_PASSWORD),
+            "password_hash": generate_password_hash(first_pw),
         }
         cfg["auth"] = auth
         save_cfg(cfg)
+        print(f"[INIT] Erstes Start – Login: {DEFAULT_USERNAME} / Passwort: {first_pw}", flush=True)
+        print("[INIT] Passwort nach dem ersten Login unter Einstellungen (🔑) ändern.", flush=True)
     return auth
 
 @app.before_request

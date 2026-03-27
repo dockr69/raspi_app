@@ -62,6 +62,8 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5
 | **Kiosk-Modus** | Chromium im Vollbild beim Booten (Openbox + LightDM) |
 | **mDNS** | Erreichbar unter `textspeicher.local` im lokalen Netzwerk |
 | **SSH** | OpenSSH vorkonfiguriert für Remote-Zugriff |
+| **Authentifizierung** | Login-Seite mit Benutzername/Passwort, Session-basiert, Passwort jederzeit änderbar |
+| **Web-Terminal** | Eingebettetes Browser-Terminal mit Command-History und persistentem Verzeichnis |
 
 ---
 
@@ -130,6 +132,12 @@ sudo reboot
 | **Web-UI (mDNS)** | `http://textspeicher.local` |
 | **Web-UI (statische IP)** | `http://<konfigurierte-IP>` |
 | **SSH** | `ssh pi@10.0.0.10` |
+
+> Die Web-UI ist passwortgeschützt. Beim ersten Start wird automatisch ein zufälliges Passwort generiert und in den Systemlogs ausgegeben:
+> ```bash
+> journalctl -u radxa-audio-web | grep Passwort
+> ```
+> Benutzername: **pi** · Passwort direkt nach dem ersten Login über den 🔑-Button ändern.
 
 ---
 
@@ -252,10 +260,20 @@ Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
   - Zugewiesene GPIO-Pins mit Badge-Anzeige (`🌐 HTTP` / `🔌 GPIO [Pin]`)
   - Aktionen: Abspielen, Umbenennen, Löschen, Trigger-Typ ändern
 - **Upload-Bereich** für neue Sounds direkt im Dashboard
+- **Lautstärke-Karte**: Ausgang und Eingang direkt auf dem Dashboard regelbar
+- **Web-Terminal**: eingebettetes Terminal (⌨-Button), Command-History, persistentes Verzeichnis
 
 ---
 
 ## API-Referenz
+
+### Authentifizierung
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET/POST | `/login` | Login-Seite |
+| GET | `/logout` | Session beenden |
+| POST | `/api/auth/change-password` | Passwort ändern (`old_password`, `new_password`) |
+| POST | `/api/terminal/exec` | Shell-Befehl ausführen (`cmd`) |
 
 ### System
 | Methode | Endpunkt | Beschreibung |
@@ -407,9 +425,14 @@ Upload (beliebiges Format)
 
 ### Sicherheitsmechanismen
 
+- **Session-Authentifizierung**: Alle Seiten und API-Endpunkte erfordern Login (außer HTTP-Trigger)
+- Passwort gehasht gespeichert (`werkzeug.security`) in `config.json`
+- Session-Key persistent in `/etc/radxa_audio/.secret_key` (600 Permissions)
 - `threading.Lock` verhindert gleichzeitige Audiowiedergabe
 - Thread-sicherer Dateinamen-Konfliktschutz bei parallelen Uploads
-- 20 Sekunden Standard-Timeout für Subprozesse (90 s für ffmpeg)
+- Pfad-Traversal-Schutz bei allen Dateioperationen
+- Interface- und IP-Validierung vor Shell-Ausführung
+- 20 Sekunden Standard-Timeout für Subprozesse (90 s für ffmpeg, 30 s für Terminal)
 - Setup-Marker verhindert versehentliches Zurücksetzen
 - Service-IP `10.0.0.10` immer verfügbar
 
