@@ -250,11 +250,10 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="ip-card-badge">✓ Konfiguriert</div>
       </div>
       <div class="ip-card service">
-        <div class="ip-card-lock">🔒</div>
-        <div class="ip-card-label">🔒 Service-IP (fest)</div>
+        <div class="ip-card-label">Service-IP</div>
         <div class="ip-card-ip">10.0.0.10</div>
-        <div class="ip-card-sub">textspeicher.local · immer aktiv</div>
-        <div class="ip-card-badge">⚡ Permanent gesperrt</div>
+        <div class="ip-card-sub">textspeicher.local</div>
+        <div class="ip-card-badge">✓ Aktiv</div>
       </div>
     </div>
 
@@ -370,7 +369,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     <div class="sb-bottom">
       <div class="sb-bottom-row">Service-IP: <b>10.0.0.10</b></div>
       <div class="sb-bottom-row">mDNS: <b>textspeicher.local</b></div>
-      <div class="sb-lock">🔒 <span>10.0.0.10 ist permanent</span></div>
     </div>
   </nav>
 
@@ -393,19 +391,10 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="card">
           <div class="card-title">📋 Schritte</div>
           <div style="display:flex;flex-direction:column;gap:9px;font-size:13px;color:var(--t2)">
-            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">01</span><div><b style="color:var(--text)">Netzwerk</b> — Statische IP · Service-IP 10.0.0.10 wird immer zusätzlich gesetzt</div></div>
+            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">01</span><div><b style="color:var(--text)">Netzwerk</b> — Statische IP konfigurieren</div></div>
             <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">02</span><div><b style="color:var(--text)">Audio</b> — Line-In Quelle & Passthrough</div></div>
             <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">03</span><div><b style="color:var(--text)">Sounds</b> — MP3 hochladen & konvertieren</div></div>
             <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">04</span><div><b style="color:var(--text)">GPIO</b> — Taster zuweisen (optional)</div></div>
-          </div>
-        </div>
-        <div class="card" style="background:var(--warn-dim);border-color:rgba(255,171,64,.2)">
-          <div style="display:flex;gap:12px;align-items:flex-start">
-            <span style="font-size:20px">🔒</span>
-            <div>
-              <div style="font-weight:600;color:var(--warn);margin-bottom:3px">Service-IP 10.0.0.10 ist permanent gesperrt</div>
-              <div style="font-size:13px;color:var(--t2)">Immer aktiv, unabhängig vom Netzwerk. Laptop: Netzwerkkarte auf <b style="color:var(--text)">10.0.0.1</b> / 255.255.255.0.</div>
-            </div>
           </div>
         </div>
         <div class="step-nav">
@@ -418,7 +407,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="pane" id="pane-1">
         <div style="margin-bottom:24px">
           <div style="font-family:var(--mono);font-size:22px;font-weight:700">01 · <span style="color:var(--acc)">Netzwerk</span></div>
-          <div style="font-size:13px;color:var(--t2);margin-top:4px">Statische IP für Laptop-Zugriff — zusätzlich zur festen Service-IP 10.0.0.10</div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Statische IP & Netzwerk konfigurieren</div>
         </div>
 
         <div class="card">
@@ -429,12 +418,12 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
             <div style="background:var(--s3);border:1px solid var(--border2);border-radius:6px;padding:12px 14px">
               <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin-bottom:6px">Statische IP (du wählst)</div>
               <div style="font-family:var(--mono);font-size:18px;color:var(--text)" id="net-preview-static">–.–.–.–</div>
-              <div style="font-size:11px;color:var(--t3);margin-top:2px">Netzwerkzugang Laptop</div>
+              <div style="font-size:11px;color:var(--t3);margin-top:2px">Primäre IP-Adresse</div>
             </div>
             <div style="background:var(--warn-dim);border:1px solid rgba(255,171,64,.2);border-radius:6px;padding:12px 14px">
-              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);margin-bottom:6px">🔒 Service-IP (fest)</div>
+              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin-bottom:6px">Service-IP</div>
               <div style="font-family:var(--mono);font-size:18px;color:var(--text)">10.0.0.10</div>
-              <div style="font-size:11px;color:var(--t3);margin-top:2px">Immer aktiv · nicht änderbar</div>
+              <div style="font-size:11px;color:var(--t3);margin-top:2px">textspeicher.local</div>
             </div>
           </div>
 
@@ -446,7 +435,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
             <div class="flabel">Statische IP *</div>
             <div class="fwrap">
               <input type="text" id="net-ip" placeholder="z.B. 192.168.1.100" oninput="onNetInput()" autocomplete="off">
-              <div class="fhint" id="net-ip-hint">Wird zusätzlich zu 10.0.0.10 gesetzt</div>
+              <div class="fhint" id="net-ip-hint">z.B. 192.168.1.100</div>
             </div>
           </div>
           <div class="frow">
@@ -473,7 +462,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         </div>
 
         <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
-          <span style="color:var(--t3)">Laptop:</span> IP <b style="color:var(--text)">10.0.0.1</b> · Maske 255.255.255.0 · kein Gateway nötig<br>
           <span style="color:var(--t3)">mDNS:</span> <b style="color:var(--acc)">http://textspeicher.local</b><br>
           <span style="color:var(--t3)">SSH:</span> <b style="color:var(--green)">ssh pi@10.0.0.10</b>
         </div>

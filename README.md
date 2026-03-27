@@ -143,7 +143,7 @@ Schritt 1 – Willkommen
 
 Schritt 2 – Netzwerk
   └── Statische IP, Subnetzmaske, Gateway, DNS konfigurieren
-      (10.0.0.10 wird immer zusätzlich eingetragen)
+      Statische IP konfigurieren
 
 Schritt 3 – Audio
   └── PulseAudio-Eingangsquelle wählen, Lautstärke einstellen
@@ -166,8 +166,7 @@ Nach Abschluss des Assistenten wechselt die UI automatisch in das **Status-Dashb
 ### Netzwerkkonfiguration
 
 - Konfiguriert eine statische IP-Adresse auf dem gewählten Netzwerk-Interface
-- Die Service-IP `10.0.0.10/24` wird **immer zusätzlich** eingerichtet und ist durch das System geschützt
-- **3-fache Absicherung**: `/etc/network/interfaces.d`, `rc.local` und systemd `ExecStartPre` stellen sicher, dass `10.0.0.10` nach jedem Neustart verfügbar ist
+- Die Service-IP `10.0.0.10` ist fest eingerichtet und immer erreichbar
 - Validierung von IP-Adresse, Gateway und DNS direkt im Browser
 
 ### Audio-Konfiguration
@@ -246,7 +245,7 @@ Physische Taster können direkt mit Audiodateien verknüpft werden:
 
 Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
 
-- **IP-Karten**: Konfigurierte statische IP und gesperrte Service-IP `10.0.0.10`
+- **IP-Karten**: Konfigurierte statische IP und Service-IP `10.0.0.10`
 - **Status-Tiles**: Anzahl Sounds, SSH-Status, mDNS, Trigger-Port
 - **Sound-Bibliothek**:
   - Fertige HTTP-Trigger-URLs zum Kopieren
@@ -412,7 +411,7 @@ Upload (beliebiges Format)
 - Thread-sicherer Dateinamen-Konfliktschutz bei parallelen Uploads
 - 20 Sekunden Standard-Timeout für Subprozesse (90 s für ffmpeg)
 - Setup-Marker verhindert versehentliches Zurücksetzen
-- Service-IP durch 3-fache systemd/OS-Absicherung immer verfügbar
+- Service-IP `10.0.0.10` immer verfügbar
 
 ---
 
