@@ -1,8 +1,8 @@
 # Radxa Audio Konfigurator
 
-Ein webbasiertes Konfigurationssystem für **Radxa ROCK 3A, ROCK 4C+** und kompatible Boards, das Audio-Management, Netzwerkkonfiguration, Datei-Uploads und GPIO-Tasterbelegung über eine moderne Browser-Oberfläche ermöglicht – inklusive automatischem Kiosk-Modus beim Booten.
+Ein webbasiertes Konfigurationssystem für **Radxa ROCK 3A, 3C, 4C+, 4SE, 5C, 2F** und andere Boards mit 40-Pin-GPIO-Header, das Audio-Management, Netzwerkkonfiguration, Datei-Uploads und GPIO-Tasterbelegung über eine moderne Browser-Oberfläche ermöglicht – inklusive automatischem Kiosk-Modus beim Booten.
 
-![Platform](https://img.shields.io/badge/Platform-Radxa%20ROCK%203A%20%7C%204C+-orange)
+![Platform](https://img.shields.io/badge/Platform-Radxa%20ROCK%203A%20%7C%203C%20%7C%204C+%20%7C%205C%20u.a.-orange)
 ![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-2.3+-lightgrey?logo=flask)
 ![License](https://img.shields.io/badge/License-Private-red)
@@ -34,7 +34,7 @@ Ein webbasiertes Konfigurationssystem für **Radxa ROCK 3A, ROCK 4C+** und kompa
 
 ## Übersicht
 
-Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, ROCK 4C+ oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollständiges, netzwerkfähiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen 5-Schritte-Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
+Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5C, 2F oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollständiges, netzwerkfähiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen 5-Schritte-Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
 
 - **Immer erreichbar** unter der festen Service-IP `10.0.0.10` sowie `http://textspeicher.local`
 - **Audiodateien** per Drag-and-Drop hochladen – automatische Konvertierung via ffmpeg, bis zu 4 Dateien gleichzeitig
@@ -66,10 +66,27 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, ROCK 4C+ oder k
 
 ## Systemanforderungen
 
-- **Hardware**: Radxa ROCK 3A, ROCK 4C+ (oder kompatibler ARM-Linux-Einplatinencomputer mit libgpiod-Unterstützung)
-- **Betriebssystem**: Debian/Ubuntu-basiertes Linux (arm64)
+- **Betriebssystem**: Radxa Debian (Bullseye / Bookworm, arm64)
 - **Zugriff**: Root- oder sudo-Berechtigung
 - **Netzwerk**: Aktive Netzwerkverbindung während der Installation
+
+### Kompatible Boards
+
+Alle Radxa-Boards mit 40-Pin-GPIO-Header und Radxa-Debian-Image werden unterstützt. Der GPIO-Daemon nutzt `python3-gpiod` (libgpiod) und ist damit unabhängig von RPi.GPIO.
+
+| Board | SoC | 40-Pin GPIO | Audio Jack | Combo Jack (TRRS) | Bemerkung |
+|---|---|---|---|---|---|
+| **ROCK 3A** | RK3568 | ✓ | 3,5 mm | ✓ | Referenzboard, vollständig getestet |
+| **ROCK 3C** | RK3566 | ✓ | 3,5 mm | ✓ | Vergleichbar mit ROCK 3A |
+| **ROCK 4C+** | RK3399-T | ✓ | 3,5 mm | ✓ | Vollständig kompatibel |
+| **ROCK 4SE** | RK3399-T | ✓ | 3,5 mm | ✓ | Identisch mit 4C+ (anderes Layout) |
+| **ROCK 5A** | RK3588S | ✓ | — | — | Kein 3,5-mm-Jack; Audio über USB-DAC oder HAT |
+| **ROCK 5B** | RK3588 | ✓ | 3,5 mm | — | Nur Ausgang; kein Mic-Eingang am Jack |
+| **ROCK 5C** | RK3588S | ✓ | 3,5 mm | ✓ | Combo Jack vorhanden |
+| **ROCK 2F** | RK3528 | ✓ | 3,5 mm | ✓ | Kleineres Board, sonst kompatibel |
+| **Zero 3W / 3E** | RK3566 | ✓ (40-Pin) | — | — | Kein Audio-Jack; kompakter Formfaktor |
+
+> **Combo Jack (TRRS):** Boards mit TRRS-Anschluss können Eingang und Ausgang über denselben Stecker nutzen. Das richtige PulseAudio-Profil (`headset-head-unit`) muss über die Audio-Einstellungen gesetzt werden – die Web-UI unterstützt dies direkt.
 
 ---
 
@@ -429,7 +446,7 @@ flask>=2.3
 
 ## Autor
 
-Entwickelt von **Fabian** für den internen Einsatz auf Radxa ROCK 3A und ROCK 4C+ Hardware.
+Entwickelt von **Fabian** für den internen Einsatz auf Radxa-Hardware (ROCK 3A, 4C+ und weiteren).
 
 ---
 
