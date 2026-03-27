@@ -18,6 +18,7 @@ Ein webbasiertes Konfigurationssystem für **Radxa ROCK 3A, 3C, 4C+, 4SE, 5C, 2F
 - [Zugang nach der Installation](#zugang-nach-der-installation)
 - [Einrichtungsassistent](#einrichtungsassistent)
 - [Funktionen im Detail](#funktionen-im-detail)
+  - [Betriebsmodus (Online / Offline)](#betriebsmodus-online--offline)
   - [Netzwerkkonfiguration](#netzwerkkonfiguration)
   - [Audio-Konfiguration](#audio-konfiguration)
   - [Sound-Bibliothek & Uploads](#sound-bibliothek--uploads)
@@ -34,12 +35,13 @@ Ein webbasiertes Konfigurationssystem für **Radxa ROCK 3A, 3C, 4C+, 4SE, 5C, 2F
 
 ## Übersicht
 
-Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5C, 2F oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollständiges, netzwerkfähiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen 5-Schritte-Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
+Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5C, 2F oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollständiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
 
-- **Immer erreichbar** unter der festen Service-IP `10.0.0.10` sowie `http://textspeicher.local`
+- **Zwei Betriebsmodi**: **Online** (HTTP + GPIO, mit Netzwerk) oder **Offline** (nur GPIO, kein Router nötig)
+- **Immer erreichbar** unter der festen Service-IP `10.0.0.10` – auch im Offline-Modus (Laptop direkt per Kabel)
 - **Audiodateien** per Drag-and-Drop hochladen – automatische Konvertierung via ffmpeg, bis zu 4 Dateien gleichzeitig
-- **Wiedergabe** per HTTP-Request (Integration in externe Systeme) oder physischem GPIO-Taster
-- **Pro Sound** wählbar: HTTP-Trigger, GPIO-Trigger oder beides
+- **Wiedergabe** per HTTP-Request (Online-Modus) oder physischem GPIO-Taster (beide Modi)
+- **Pro Sound** wählbar: HTTP-Trigger, GPIO-Trigger oder beides (Online-Modus)
 - **Kiosk-Modus**: Chromium startet beim Booten automatisch im Vollbild mit der Web-UI
 
 ---
@@ -48,8 +50,9 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5
 
 | Feature | Beschreibung |
 |---|---|
-| **Einrichtungsassistent** | 5-Schritte-Wizard für Erstkonfiguration |
-| **Netzwerk** | Statische IP-Konfiguration mit permanenter Service-IP `10.0.0.10` |
+| **Online/Offline-Modus** | Online: HTTP + GPIO mit Netzwerk · Offline: nur GPIO, kein Router nötig |
+| **Einrichtungsassistent** | 5-Schritte-Wizard (Online) bzw. 4-Schritte-Wizard (Offline) |
+| **Netzwerk** | Statische IP-Konfiguration mit permanenter Service-IP `10.0.0.10` (Online-Modus) |
 | **Audio** | Getrennte Lautstärkeregler für Ausgang (Line-Out) und Eingang (Line-In), automatisches Mute während Wiedergabe |
 | **Combo Jack** | 3,5-mm-TRRS-Konfiguration: Soundkarte & Profil wählen (z. B. Headset-Modus für Eingang + Ausgang) |
 | **Datei-Upload** | Beliebige Audioformate – ffmpeg konvertiert automatisch zu MP3 (bis zu 4 parallel) |
@@ -143,15 +146,15 @@ sudo reboot
 
 ## Einrichtungsassistent
 
-Beim ersten Aufruf der Web-UI startet automatisch ein **5-Schritte-Assistent**:
+Beim ersten Aufruf der Web-UI startet automatisch der Einrichtungsassistent. Im ersten Schritt wird der **Betriebsmodus** gewählt:
 
+**Online-Modus (5 Schritte):**
 ```
-Schritt 1 – Willkommen
-  └── Übersicht über den Einrichtungsprozess
+Schritt 1 – Willkommen & Modus
+  └── Betriebsmodus wählen: Online oder Offline
 
 Schritt 2 – Netzwerk
   └── Statische IP, Subnetzmaske, Gateway, DNS konfigurieren
-      Statische IP konfigurieren
 
 Schritt 3 – Audio
   └── PulseAudio-Eingangsquelle wählen, Lautstärke einstellen
@@ -162,8 +165,24 @@ Schritt 4 – Sounds
 
 Schritt 5 – GPIO
   └── Physische Taster auf GPIO-Pins den Sounddateien zuweisen
-      → GPIO-Daemon wird automatisch generiert und gestartet
 ```
+
+**Offline-Modus (4 Schritte):**
+```
+Schritt 1 – Willkommen & Modus
+  └── Betriebsmodus wählen: Online oder Offline
+
+Schritt 2 – Audio
+  └── PulseAudio-Eingangsquelle wählen, Lautstärke einstellen
+
+Schritt 3 – Sounds
+  └── MP3-Dateien hochladen — alle Sounds sind automatisch GPIO-Trigger
+
+Schritt 4 – GPIO
+  └── Physische Taster auf GPIO-Pins den Sounddateien zuweisen
+```
+
+> Im Offline-Modus wird der Netzwerk-Schritt übersprungen. Das Webinterface bleibt über die Service-IP `10.0.0.10` erreichbar (Laptop direkt per Kabel).
 
 Nach Abschluss des Assistenten wechselt die UI automatisch in das **Status-Dashboard**.
 
@@ -171,9 +190,24 @@ Nach Abschluss des Assistenten wechselt die UI automatisch in das **Status-Dashb
 
 ## Funktionen im Detail
 
+### Betriebsmodus (Online / Offline)
+
+Im Willkommens-Schritt des Assistenten wird der Betriebsmodus gewählt:
+
+| Modus | Trigger | Netzwerk | Einsatz |
+|---|---|---|---|
+| **🌐 Online** | HTTP + GPIO | Statische IP + Service-IP | Gerät im Netzwerk mit Router/Switch |
+| **🔌 Offline** | Nur GPIO | Nur Service-IP `10.0.0.10` | Standalone, kein Router am Einsatzort |
+
+**Wichtig:** Auch im Offline-Modus ist das Gerät über die Service-IP `10.0.0.10` per Kabel erreichbar. SSH und die Web-UI funktionieren in beiden Modi — der Unterschied betrifft ausschließlich die Sound-Auslösung am Einsatzort.
+
+- Im Offline-Modus werden alle Sounds automatisch auf GPIO-Trigger umgestellt
+- HTTP-Trigger (`/cgi-bin/index.cgi`, `/play/<name>`) sind im Offline-Modus deaktiviert
+- Der Modus kann jederzeit über den Wizard geändert werden
+
 ### Netzwerkkonfiguration
 
-- Konfiguriert eine statische IP-Adresse auf dem gewählten Netzwerk-Interface
+- Konfiguriert eine statische IP-Adresse auf dem gewählten Netzwerk-Interface (nur im Online-Modus)
 - Die Service-IP `10.0.0.10` ist fest eingerichtet und immer erreichbar
 - Validierung von IP-Adresse, Gateway und DNS direkt im Browser
 
@@ -214,6 +248,8 @@ Boards wie der Radxa ROCK 3A und ROCK 4C+ haben einen kombinierten Headset-Ansch
 - Thread-Mutex verhindert gleichzeitige Wiedergabe mehrerer Dateien
 
 ### HTTP-Trigger
+
+> **Hinweis:** HTTP-Trigger sind nur im **Online-Modus** verfügbar. Im Offline-Modus werden alle HTTP-Trigger-Anfragen mit Status 403 abgelehnt.
 
 Audiodateien können per einfachem HTTP GET-Request abgespielt werden – ideal für die Integration in andere Systeme, Automatisierungen oder externe Hardware.
 
@@ -278,7 +314,8 @@ Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
 ### System
 | Methode | Endpunkt | Beschreibung |
 |---|---|---|
-| GET | `/api/status` | Systemstatus und Konfiguration |
+| GET | `/api/status` | Systemstatus und Konfiguration (inkl. `mode`) |
+| GET/POST | `/api/mode` | Betriebsmodus abfragen/setzen (`online` / `offline`) |
 | GET | `/api/setup/status` | Setup-Fortschritt |
 | POST | `/api/setup/finish` | Setup als abgeschlossen markieren |
 | POST | `/api/setup/reset` | Setup zurücksetzen |
@@ -358,6 +395,7 @@ Alle Einstellungen werden unter `/etc/radxa_audio/config.json` gespeichert:
 
 ```json
 {
+  "mode": "online",
   "network": {
     "interface": "eth0",
     "ip": "192.168.1.100",
