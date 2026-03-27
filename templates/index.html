@@ -290,6 +290,29 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       </div>
     </div>
 
+    <!-- Lautstärke-Karte -->
+    <div class="card" style="padding:14px 22px">
+      <div class="card-title">🔊 Lautstärke</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--t2);min-width:72px">🔊 Ausgang</span>
+          <input type="range" id="ds-vol-out" min="0" max="100" value="80" style="flex:1"
+                 oninput="document.getElementById('ds-vol-out-val').textContent=this.value+'%'">
+          <span id="ds-vol-out-val" style="font-family:var(--mono);font-size:11px;min-width:36px;color:var(--t2)">80%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--t2);min-width:72px">🎙 Eingang</span>
+          <input type="range" id="ds-vol-in" min="0" max="100" value="80" style="flex:1"
+                 oninput="document.getElementById('ds-vol-in-val').textContent=this.value+'%'">
+          <span id="ds-vol-in-val" style="font-family:var(--mono);font-size:11px;min-width:36px;color:var(--t2)">80%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;justify-content:flex-end">
+          <div class="spill" id="ds-vol-status" style="margin:0;flex:1"></div>
+          <button class="btn btn-green btn-sm" onclick="dsSaveVolume()">✓ Anwenden</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Sound-Bibliothek + Upload-Tabs -->
     <div class="card">
       <div class="card-title">
@@ -481,13 +504,25 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
             </div>
           </div>
           <div class="frow">
-            <div class="flabel">Lautstärke</div>
+            <div class="flabel">🔊 Ausgang</div>
             <div class="fwrap" style="padding-top:5px">
               <div style="display:flex;align-items:center;gap:12px">
                 <input type="range" id="audio-vol" min="0" max="100" value="80"
                        oninput="document.getElementById('vol-val').textContent=this.value+'%'" style="flex:1">
                 <span id="vol-val" style="font-family:var(--mono);font-size:12px;min-width:36px;color:var(--t2)">80%</span>
               </div>
+              <div class="fhint">Line-Out / Lautsprecher (pactl set-sink-volume)</div>
+            </div>
+          </div>
+          <div class="frow">
+            <div class="flabel">🎙 Eingang</div>
+            <div class="fwrap" style="padding-top:5px">
+              <div style="display:flex;align-items:center;gap:12px">
+                <input type="range" id="audio-vol-in" min="0" max="100" value="80"
+                       oninput="document.getElementById('vol-in-val').textContent=this.value+'%'" style="flex:1">
+                <span id="vol-in-val" style="font-family:var(--mono);font-size:12px;min-width:36px;color:var(--t2)">80%</span>
+              </div>
+              <div class="fhint">Line-In / Mikrofon (pactl set-source-volume)</div>
             </div>
           </div>
           <div class="brow">
@@ -638,6 +673,21 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="fhint" style="margin-bottom:6px">GPIO-Pin zuweisen:</div>
       <select id="tmod-gpio-pin" style="width:100%"></select>
     </div>
+    <div style="margin-top:12px">
+      <div class="fhint" style="margin-bottom:6px">🔁 Wiederholungen (1–10):</div>
+      <select id="tmod-repeat" style="width:100%">
+        <option value="1">1× — einmal abspielen</option>
+        <option value="2">2× wiederholen</option>
+        <option value="3">3× wiederholen</option>
+        <option value="4">4× wiederholen</option>
+        <option value="5">5× wiederholen</option>
+        <option value="6">6× wiederholen</option>
+        <option value="7">7× wiederholen</option>
+        <option value="8">8× wiederholen</option>
+        <option value="9">9× wiederholen</option>
+        <option value="10">10× wiederholen</option>
+      </select>
+    </div>
     <div class="spill" id="tmod-hint" style="margin-top:10px"></div>
     <input type="hidden" id="tmod-stem">
     <div class="brow" style="margin-top:16px;justify-content:flex-end">
@@ -692,6 +742,15 @@ async function loadDashboard() {
   document.getElementById('ds-ssh-cmd').textContent  = `ssh pi@${sip}`;
   document.getElementById('ds-ssh-cmd2').textContent = `ssh pi@textspeicher.local`;
 
+  // Lautstärke-Slider befüllen
+  const a = st.config?.audio || {};
+  const volOut = a.volume ?? 80;
+  const volIn  = a.input_volume ?? 80;
+  document.getElementById('ds-vol-out').value = volOut;
+  document.getElementById('ds-vol-out-val').textContent = volOut + '%';
+  document.getElementById('ds-vol-in').value = volIn;
+  document.getElementById('ds-vol-in-val').textContent = volIn + '%';
+
   // MP3-Count
   const mp3s = await api('GET', '/api/mp3s');
   document.getElementById('ds-mp3-count').textContent = `${mp3s.length} Datei${mp3s.length !== 1 ? 'en' : ''}`;
@@ -712,19 +771,22 @@ function renderSoundTable(mp3s, staticIp) {
     const triggerBadge = isGpio
       ? `<span class="ttype-badge ttype-gpio">🔌 GPIO ${f.gpio_pin ?? '–'}</span>`
       : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
+    const repeatBadge = f.repeat > 1
+      ? `<span class="ttype-badge" style="background:rgba(0,212,255,.08);color:var(--acc);border:1px solid rgba(0,212,255,.2)">🔁 ×${f.repeat}</span>`
+      : '';
     const urlCell = isGpio
       ? `<span style="color:var(--t3);font-family:var(--mono);font-size:12px">GPIO ${f.gpio_pin ?? '–'} → physischer Taster</span>`
       : `<span class="url">${httpBase}/cgi-bin/index.cgi?webif-pass=1&amp;spotrequest=${encodeURIComponent(f.name)}</span>`;
     return `<tr>
       <td><span style="font-family:var(--mono);font-size:13px">${esc(f.name)}</span></td>
-      <td>${triggerBadge}</td>
+      <td style="white-space:nowrap">${triggerBadge}${repeatBadge}</td>
       <td>${urlCell}</td>
       <td style="color:var(--t3);font-family:var(--mono);font-size:11px">${f.size_kb} KB</td>
     </tr>`;
   }).join('');
   body.innerHTML = `<table class="sound-table">
     <thead><tr>
-      <th>Datei</th><th>Trigger</th><th>Endpunkt / Zuweisung</th><th>Größe</th>
+      <th>Datei</th><th>Trigger / Repeat</th><th>Endpunkt / Zuweisung</th><th>Größe</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
@@ -816,10 +878,20 @@ async function detectSources() {
 }
 async function saveAudio() {
   await api('POST','/api/audio/save',{
-    source: document.getElementById('audio-src').value,
-    volume: parseInt(document.getElementById('audio-vol').value)
+    source:       document.getElementById('audio-src').value,
+    volume:       parseInt(document.getElementById('audio-vol').value),
+    input_volume: parseInt(document.getElementById('audio-vol-in').value),
   });
   pill('audio-status','✓ Gespeichert','ok');
+}
+async function dsSaveVolume() {
+  const st = await api('GET','/api/status');
+  const r  = await api('POST','/api/audio/save',{
+    source:       st.config?.audio?.source || '@DEFAULT_SOURCE@',
+    volume:       parseInt(document.getElementById('ds-vol-out').value),
+    input_volume: parseInt(document.getElementById('ds-vol-in').value),
+  });
+  pill('ds-vol-status', r.ok ? '✓ Gespeichert' : '✗ Fehler', r.ok ? 'ok' : 'err');
 }
 async function saveAudioAndNext() { await saveAudio(); goStep(3); }
 async function doMute(m) {
@@ -891,10 +963,11 @@ async function loadMp3s() {
         <div class="mp3-meta">/cgi-bin/index.cgi?…&spotrequest=${esc(f.name)}</div>
       </div>
       ${badge}
+      ${f.repeat > 1 ? `<span class="ttype-badge" style="background:rgba(0,212,255,.08);color:var(--acc);border:1px solid rgba(0,212,255,.2)">🔁 ×${f.repeat}</span>` : ''}
       <div class="mp3-size">${f.size_kb} KB</div>
       <div class="mp3-actions">
         <button class="btn btn-primary btn-sm" onclick="playMp3('${esc(f.name)}')">▶</button>
-        <button class="btn btn-ghost btn-sm" title="Trigger-Typ" onclick="openTriggerModal('${esc(f.stem)}','${esc(f.name)}','${f.trigger_type||'http'}',${f.gpio_pin||'null'})">⚡</button>
+        <button class="btn btn-ghost btn-sm" title="Trigger-Typ" onclick="openTriggerModal('${esc(f.stem)}','${esc(f.name)}','${f.trigger_type||'http'}',${f.gpio_pin||'null'},${f.repeat||1})">⚡</button>
         <button class="btn btn-ghost btn-sm" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')">✎</button>
         <button class="btn btn-danger btn-sm" onclick="deleteMp3('${esc(f.name)}')">✕</button>
       </div>
@@ -938,7 +1011,7 @@ document.getElementById('rename-modal').addEventListener('click',e=>{if(e.target
 document.getElementById('rename-input').addEventListener('keydown',e=>{if(e.key==='Enter')doRename();if(e.key==='Escape')closeModal();});
 
 // ── Trigger-Typ Modal ─────────────────────────────────────────────────────────
-function openTriggerModal(stem, name, type, gpioPin) {
+function openTriggerModal(stem, name, type, gpioPin, repeat) {
   selectedTriggerType = type || 'http';
   document.getElementById('tmod-stem').value = stem;
   document.getElementById('tmod-name').textContent = name;
@@ -946,6 +1019,8 @@ function openTriggerModal(stem, name, type, gpioPin) {
   // GPIO-Pin Dropdown befüllen
   const sel = document.getElementById('tmod-gpio-pin');
   sel.innerHTML = GPIO_PINS.map(p=>`<option value="${p}"${p==gpioPin?' selected':''}>GPIO ${p}</option>`).join('');
+  // Repeat setzen
+  document.getElementById('tmod-repeat').value = repeat || 1;
   document.getElementById('trigger-modal').classList.add('show');
 }
 function closeTriggerModal() { document.getElementById('trigger-modal').classList.remove('show'); }
@@ -969,10 +1044,11 @@ function selectTrigger(type) {
   }
 }
 async function saveTriggerType() {
-  const stem = document.getElementById('tmod-stem').value;
+  const stem    = document.getElementById('tmod-stem').value;
   const gpioPin = selectedTriggerType==='gpio'
     ? parseInt(document.getElementById('tmod-gpio-pin').value) : null;
-  const r = await api('POST','/api/mp3s/trigger',{stem, trigger_type:selectedTriggerType, gpio_pin:gpioPin});
+  const repeat  = parseInt(document.getElementById('tmod-repeat').value) || 1;
+  const r = await api('POST','/api/mp3s/trigger',{stem, trigger_type:selectedTriggerType, gpio_pin:gpioPin, repeat});
   if (r.ok) {
     closeTriggerModal();
     pill('sounds-status',`✓ Trigger für ${stem}: ${selectedTriggerType.toUpperCase()}`,'ok');
@@ -1178,6 +1254,8 @@ async function init() {
     if(n.interface) document.getElementById('net-iface').value=n.interface;
     if(a.source) document.getElementById('audio-src').value=a.source;
     if(a.volume){document.getElementById('audio-vol').value=a.volume;document.getElementById('vol-val').textContent=a.volume+'%';}
+    const vin=a.input_volume??80;
+    document.getElementById('audio-vol-in').value=vin;document.getElementById('vol-in-val').textContent=vin+'%';
     if(n.ip&&ipRe.test(n.ip)&&n.gateway){
       netOk=true;
       document.getElementById('btn-net-apply').disabled=false;

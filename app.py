@@ -120,15 +120,18 @@ def list_mp3s():
             "size_kb":      os.path.getsize(os.path.join(MP3_FOLDER, f)) // 1024,
             "trigger_type": sc.get("trigger_type", "http"),  # "http" | "gpio"
             "gpio_pin":     sc.get("gpio_pin", None),
+            "repeat":       max(1, min(10, int(sc.get("repeat", 1)))),
         })
     return result
 
 _play_lock = threading.Lock()
 
-def _play_thread(path, source):
+def _play_thread(path, source, repeat=1):
+    repeat = max(1, min(10, int(repeat)))
     with _play_lock:
         run(f"pactl set-source-mute '{source}' 1")
-        run(f"mpg123 -q '{path}'", timeout=300)
+        for _ in range(repeat):
+            run(f"mpg123 -q '{path}'", timeout=300)
         run(f"pactl set-source-mute '{source}' 0")
 
 def trigger_play(name):
@@ -154,7 +157,8 @@ def trigger_play(name):
     if sc.get("trigger_type") == "gpio":
         return False, f"'{stem}' ist GPIO-only — kein HTTP-Trigger erlaubt"
 
-    threading.Thread(target=_play_thread, args=(path, src), daemon=True).start()
+    repeat = max(1, min(10, int(sc.get("repeat", 1))))
+    threading.Thread(target=_play_thread, args=(path, src, repeat), daemon=True).start()
     return True, os.path.basename(path)
 
 # Service-IP beim Start setzen
@@ -328,12 +332,20 @@ def api_sources():
 def api_audio_save():
     d   = request.json
     cfg = load_cfg()
+    try:
+        vol_out = max(0, min(100, int(d.get("volume", 80))))
+        vol_in  = max(0, min(100, int(d.get("input_volume", 80))))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "msg": "Ungültige Lautstärke"}), 400
     cfg["audio"] = {
-        "source": d.get("source", "@DEFAULT_SOURCE@"),
-        "volume": d.get("volume", 80)
+        "source":       d.get("source", "@DEFAULT_SOURCE@"),
+        "volume":       vol_out,
+        "input_volume": vol_in,
     }
     save_cfg(cfg)
-    run(f"pactl set-sink-volume @DEFAULT_SINK@ {cfg['audio']['volume']}%")
+    src = cfg["audio"]["source"]
+    run(f"pactl set-sink-volume @DEFAULT_SINK@ {vol_out}%")
+    run(f"pactl set-source-volume '{src}' {vol_in}%")
     return jsonify({"ok": True})
 
 @app.route('/api/audio/mute', methods=['POST'])
@@ -377,9 +389,11 @@ def api_mp3_play():
     path = _safe_mp3_path(name)
     if not path or not os.path.isfile(path):
         return jsonify({"ok": False, "msg": "nicht gefunden"}), 404
-    cfg = load_cfg()
-    src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
-    threading.Thread(target=_play_thread, args=(path, src), daemon=True).start()
+    cfg    = load_cfg()
+    src    = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
+    stem   = os.path.basename(path)[:-4]
+    repeat = max(1, min(10, int(cfg.get("sounds", {}).get(stem, {}).get("repeat", 1))))
+    threading.Thread(target=_play_thread, args=(path, src, repeat), daemon=True).start()
     return jsonify({"ok": True})
 
 @app.route('/api/mp3s/delete', methods=['POST'])
@@ -437,9 +451,14 @@ def api_mp3_trigger():
     cfg = load_cfg()
     if "sounds" not in cfg:
         cfg["sounds"] = {}
+    try:
+        repeat = max(1, min(10, int(d.get("repeat", 1))))
+    except (TypeError, ValueError):
+        repeat = 1
     cfg["sounds"][stem] = {
         "trigger_type": ttype,
         "gpio_pin":     pin if ttype == "gpio" else None,
+        "repeat":       repeat,
     }
     save_cfg(cfg)
     # GPIO-Script neu generieren
@@ -544,7 +563,10 @@ def _write_gpio_script(cfg):
     gpio_map = {}
     for stem, sc in cfg.get("sounds", {}).items():
         if sc.get("trigger_type") == "gpio" and sc.get("gpio_pin") is not None:
-            gpio_map[sc["gpio_pin"]] = stem
+            gpio_map[sc["gpio_pin"]] = {
+                "stem":   stem,
+                "repeat": max(1, min(10, int(sc.get("repeat", 1)))),
+            }
     if not gpio_map:
         run("systemctl stop radxa-audio-gpio 2>/dev/null")
         return
@@ -562,12 +584,15 @@ GPIO_MAP    = {repr(gpio_map)}
 CHIP        = '/dev/gpiochip0'
 DEBOUNCE    = 0.2
 
-def play(stem):
-    path = os.path.join(MP3_FOLDER, stem + '.mp3')
+def play(entry):
+    stem   = entry['stem']
+    repeat = entry.get('repeat', 1)
+    path   = os.path.join(MP3_FOLDER, stem + '.mp3')
     if not os.path.isfile(path):
         return
     subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'])
-    subprocess.run(['mpg123', '-q', path])
+    for _ in range(repeat):
+        subprocess.run(['mpg123', '-q', path])
     subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'])
 
 _last = {{}}
@@ -606,9 +631,9 @@ if hasattr(gpiod, 'request_lines'):
         while True:
             if req.wait_edge_events(timeout=timedelta(seconds=1)):
                 for ev in req.read_edge_events():
-                    stem = GPIO_MAP.get(ev.line_offset)
-                    if stem and _debounce(ev.line_offset):
-                        threading.Thread(target=play, args=(stem,), daemon=True).start()
+                    entry = GPIO_MAP.get(ev.line_offset)
+                    if entry and _debounce(ev.line_offset):
+                        threading.Thread(target=play, args=(entry,), daemon=True).start()
 else:
     # gpiod 1.x
     chip  = gpiod.Chip(CHIP)
@@ -625,10 +650,10 @@ else:
                 for line in ev_bulk:
                     ev = line.event_read()
                     if ev.type == gpiod.LineEvent.FALLING_EDGE:
-                        pin  = line.offset()
-                        stem = GPIO_MAP.get(pin)
-                        if stem and _debounce(pin):
-                            threading.Thread(target=play, args=(stem,), daemon=True).start()
+                        pin   = line.offset()
+                        entry = GPIO_MAP.get(pin)
+                        if entry and _debounce(pin):
+                            threading.Thread(target=play, args=(entry,), daemon=True).start()
     finally:
         lines.release()
 """
