@@ -244,6 +244,21 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 .term-input{flex:1;background:none;border:none;outline:none;font-family:var(--mono);font-size:12px;color:#c9d1d9;caret-color:var(--acc)}
 .term-toggle{display:flex;align-items:center;gap:6px;background:var(--s2);border:1px solid var(--border2);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--t2);transition:color .15s,border-color .15s}
 .term-toggle:hover{color:var(--acc);border-color:var(--acc)}
+
+/* ── Mode Selection Cards ── */
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0}
+.mode-card{background:var(--s3);border:2px solid var(--border2);border-radius:10px;padding:24px 20px;cursor:pointer;transition:all .2s;text-align:center}
+.mode-card:hover{border-color:var(--t2)}
+.mode-card.selected{border-color:var(--acc);background:var(--acc-dim)}
+.mode-card.selected-offline{border-color:var(--purple);background:var(--purple-dim)}
+.mode-card-icon{font-size:36px;margin-bottom:10px}
+.mode-card-title{font-family:var(--mono);font-size:14px;font-weight:700;margin-bottom:6px}
+.mode-card.selected .mode-card-title{color:var(--acc)}
+.mode-card.selected-offline .mode-card-title{color:var(--purple)}
+.mode-card-desc{font-size:12px;color:var(--t2);line-height:1.5}
+.mode-badge{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:4px;margin-top:8px}
+.mode-badge.online{background:var(--acc-dim);color:var(--acc);border:1px solid rgba(0,212,255,.2)}
+.mode-badge.offline{background:var(--purple-dim);color:var(--purple);border:1px solid rgba(179,157,255,.2)}
 </style>
 </head>
 <body>
@@ -300,8 +315,9 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
   <div class="ds-topbar">
     <div class="tlogo"><div class="tpulse"></div>AUDIO</div>
     <div class="tsep"></div>
+    <div class="tchip" id="ds-mode-chip"><span id="ds-mode-label">Online</span></div>
     <div class="tchip" id="ds-chip-static">IP: <b id="ds-static-ip-chip">–</b></div>
-    <div class="tchip">Service: <b>10.0.0.10</b></div>
+    <div class="tchip" id="ds-chip-service">Service: <b>10.0.0.10</b></div>
     <div class="tchip" id="ds-ssh-chip" style="display:none">SSH <b id="ds-ssh-val">–</b></div>
     <button class="tbtn" onclick="toggleTerminal()" title="Terminal">⌨</button>
     <button class="tbtn" onclick="openWizard()" title="Einstellungen">⚙</button>
@@ -412,7 +428,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     </div>
 
     <!-- SSH Info -->
-    <div class="card" style="padding:16px 22px">
+    <div class="card" style="padding:16px 22px" id="ds-ssh-card">
       <div class="card-title">🖥 SSH-Zugang</div>
       <div style="font-family:var(--mono);font-size:13px;color:var(--t2);line-height:2.4">
         <span id="ds-ssh-cmd" style="color:var(--green)">ssh pi@10.0.0.10</span>
@@ -455,24 +471,45 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 
     <div class="content" id="wizard-content">
 
-      <!-- STEP 0: Willkommen -->
+      <!-- STEP 0: Willkommen + Modus -->
       <div class="pane active" id="pane-0">
         <div style="margin-bottom:24px">
           <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text)">Willkommen beim <span style="color:var(--acc)">Setup</span></div>
           <div style="font-size:13px;color:var(--t2);margin-top:4px">Audio-System Schritt für Schritt konfigurieren.</div>
         </div>
+
+        <div class="card">
+          <div class="card-title">⚡ Betriebsmodus wählen</div>
+          <div class="mode-grid">
+            <div class="mode-card selected" id="mode-card-online" onclick="selectMode('online')">
+              <div class="mode-card-icon">🌐</div>
+              <div class="mode-card-title">Online</div>
+              <div class="mode-card-desc">
+                HTTP-Trigger <b>+</b> GPIO-Taster<br>
+                Netzwerk wird konfiguriert
+              </div>
+              <div class="mode-badge online">WiFi-Buttons + Taster</div>
+            </div>
+            <div class="mode-card" id="mode-card-offline" onclick="selectMode('offline')">
+              <div class="mode-card-icon">🔌</div>
+              <div class="mode-card-title">Offline</div>
+              <div class="mode-card-desc">
+                Nur GPIO-Taster<br>
+                Kein Router/Switch am Einsatzort
+              </div>
+              <div class="mode-badge offline">Nur physische Taster</div>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-title">📋 Schritte</div>
-          <div style="display:flex;flex-direction:column;gap:9px;font-size:13px;color:var(--t2)">
-            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">01</span><div><b style="color:var(--text)">Netzwerk</b> — Statische IP konfigurieren</div></div>
-            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">02</span><div><b style="color:var(--text)">Audio</b> — Line-In Quelle & Passthrough</div></div>
-            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">03</span><div><b style="color:var(--text)">Sounds</b> — MP3 hochladen & konvertieren</div></div>
-            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">04</span><div><b style="color:var(--text)">GPIO</b> — Taster zuweisen (optional)</div></div>
+          <div id="steps-overview" style="display:flex;flex-direction:column;gap:9px;font-size:13px;color:var(--t2)">
           </div>
         </div>
         <div class="step-nav">
-          <div class="step-prog">Schritt 1 von 5</div>
-          <button class="btn btn-primary" onclick="goStep(1)">Los geht's →</button>
+          <div class="step-prog" id="step-prog-0">Schritt 1 von 5</div>
+          <button class="btn btn-primary" onclick="goNextFrom(0)">Los geht's →</button>
         </div>
       </div>
 
@@ -539,9 +576,9 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         </div>
 
         <div class="step-nav">
-          <button class="btn btn-ghost" onclick="goStep(0)">← Zurück</button>
-          <div class="step-prog">Schritt 2 von 5</div>
-          <button class="btn btn-primary" id="btn-net-next" onclick="goStep(2)" disabled>Weiter →</button>
+          <button class="btn btn-ghost" onclick="goPrevFrom(1)">← Zurück</button>
+          <div class="step-prog" id="step-prog-1">Schritt 2 von 5</div>
+          <button class="btn btn-primary" id="btn-net-next" onclick="goNextFrom(1)" disabled>Weiter →</button>
         </div>
       </div>
 
@@ -627,8 +664,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="spill" id="card-status"></div>
         </div>
         <div class="step-nav">
-          <button class="btn btn-ghost" onclick="goStep(1)">← Zurück</button>
-          <div class="step-prog">Schritt 3 von 5</div>
+          <button class="btn btn-ghost" onclick="goPrevFrom(2)">← Zurück</button>
+          <div class="step-prog" id="step-prog-2">Schritt 3 von 5</div>
           <button class="btn btn-primary" onclick="saveAudioAndNext()">Weiter →</button>
         </div>
       </div>
@@ -637,7 +674,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="pane" id="pane-3">
         <div style="margin-bottom:24px">
           <div style="font-family:var(--mono);font-size:22px;font-weight:700">03 · <span style="color:var(--acc)">Sounds</span></div>
-          <div style="font-size:13px;color:var(--t2);margin-top:4px">MP3s hochladen & Trigger-Typ pro Sound festlegen: HTTP oder GPIO</div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px" id="sounds-subtitle">MP3s hochladen & Trigger-Typ pro Sound festlegen: HTTP oder GPIO</div>
         </div>
 
         <div class="card">
@@ -667,9 +704,9 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         </div>
 
         <div class="step-nav">
-          <button class="btn btn-ghost" onclick="goStep(2)">← Zurück</button>
-          <div class="step-prog">Schritt 4 von 5</div>
-          <button class="btn btn-primary" onclick="goStep(4)">Weiter →</button>
+          <button class="btn btn-ghost" onclick="goPrevFrom(3)">← Zurück</button>
+          <div class="step-prog" id="step-prog-3">Schritt 4 von 5</div>
+          <button class="btn btn-primary" onclick="goNextFrom(3)">Weiter →</button>
         </div>
       </div>
 
@@ -693,8 +730,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <b style="color:var(--text)">Pull-Up:</b> intern (PUD_UP) · <b style="color:var(--text)">Debounce:</b> 200 ms
         </div>
         <div class="step-nav">
-          <button class="btn btn-ghost" onclick="goStep(3)">← Zurück</button>
-          <div class="step-prog">Schritt 5 von 5</div>
+          <button class="btn btn-ghost" onclick="goPrevFrom(4)">← Zurück</button>
+          <div class="step-prog" id="step-prog-4">Schritt 5 von 5</div>
           <button class="btn btn-primary" onclick="finishWizard()">✓ Abschließen</button>
         </div>
       </div>
@@ -760,14 +797,71 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 <script>
 const SERVICE_IP = "10.0.0.10";
 const GPIO_PINS  = [4,17,18,22,23,24,25,27];
-const STEPS = [
-  {label:"Willkommen", desc:"Übersicht"},
-  {label:"Netzwerk",   desc:"IP-Konfiguration"},
-  {label:"Audio",      desc:"Line-In"},
-  {label:"Sounds",     desc:"MP3 & Trigger"},
-  {label:"GPIO",       desc:"Taster"},
+const ALL_STEPS = [
+  {label:"Willkommen", desc:"Modus wählen",     pane:0},
+  {label:"Netzwerk",   desc:"IP-Konfiguration",  pane:1},
+  {label:"Audio",      desc:"Line-In",           pane:2},
+  {label:"Sounds",     desc:"MP3 & Trigger",     pane:3},
+  {label:"GPIO",       desc:"Taster",            pane:4},
 ];
 let curStep = 0, mp3List = [], netOk = false, selectedTriggerType = 'http';
+let appMode = '{{ mode }}';  // 'online' or 'offline'
+
+function getStepOrder() {
+  // Online: 0,1,2,3,4  —  Offline: 0,2,3,4 (skip network)
+  return appMode === 'offline' ? [0,2,3,4] : [0,1,2,3,4];
+}
+function getVisibleSteps() {
+  return getStepOrder().map(p => ALL_STEPS[p]);
+}
+function goNextFrom(pane) {
+  const order = getStepOrder();
+  const idx = order.indexOf(pane);
+  if (idx >= 0 && idx < order.length - 1) goStep(order[idx + 1]);
+}
+function goPrevFrom(pane) {
+  const order = getStepOrder();
+  const idx = order.indexOf(pane);
+  if (idx > 0) goStep(order[idx - 1]);
+}
+function updateStepLabels() {
+  const order = getStepOrder();
+  order.forEach(pane => {
+    const el = document.getElementById(`step-prog-${pane}`);
+    if (el) el.textContent = `Schritt ${order.indexOf(pane) + 1} von ${order.length}`;
+  });
+}
+function updateStepsOverview() {
+  const el = document.getElementById('steps-overview');
+  if (!el) return;
+  const steps = appMode === 'offline'
+    ? [
+        {n:'01', t:'Audio',  d:'Line-In Quelle & Passthrough'},
+        {n:'02', t:'Sounds', d:'MP3 hochladen & konvertieren'},
+        {n:'03', t:'GPIO',   d:'Taster zuweisen'},
+      ]
+    : [
+        {n:'01', t:'Netzwerk', d:'Statische IP konfigurieren'},
+        {n:'02', t:'Audio',    d:'Line-In Quelle & Passthrough'},
+        {n:'03', t:'Sounds',   d:'MP3 hochladen & konvertieren'},
+        {n:'04', t:'GPIO',     d:'Taster zuweisen (optional)'},
+      ];
+  el.innerHTML = steps.map(s =>
+    `<div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">${s.n}</span><div><b style="color:var(--text)">${s.t}</b> — ${s.d}</div></div>`
+  ).join('');
+}
+function selectMode(mode) {
+  appMode = mode;
+  const online  = document.getElementById('mode-card-online');
+  const offline = document.getElementById('mode-card-offline');
+  online.className  = 'mode-card' + (mode==='online'  ? ' selected' : '');
+  offline.className = 'mode-card' + (mode==='offline' ? ' selected-offline' : '');
+  updateStepsOverview();
+  updateStepLabels();
+  buildSidebar();
+  // Server informieren
+  api('POST', '/api/mode', {mode});
+}
 
 // ── Views ──────────────────────────────────────────────────────────────────────
 function openDashboard() {
@@ -786,6 +880,24 @@ function openWizard() {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function loadDashboard() {
   const st = await api('GET', '/api/status');
+  appMode = st.mode || 'online';
+  const isOffline = appMode === 'offline';
+
+  // Modus-Chip
+  const modeLabel = document.getElementById('ds-mode-label');
+  const modeChip  = document.getElementById('ds-mode-chip');
+  modeLabel.textContent = isOffline ? '🔌 Offline' : '🌐 Online';
+  modeChip.style.borderColor = isOffline ? 'rgba(179,157,255,.3)' : '';
+  modeLabel.style.color = isOffline ? 'var(--purple)' : '';
+
+  // Im Offline-Modus: Static-IP-Chip ausblenden, Service-IP bleibt
+  document.getElementById('ds-chip-static').style.display = isOffline ? 'none' : '';
+
+  // IP-Grid: im Offline nur Service-IP-Karte zeigen
+  const staticIpCard = document.querySelector('.ip-card.static');
+  if (staticIpCard) staticIpCard.style.display = isOffline ? 'none' : '';
+  const ipGrid = document.querySelector('.ip-grid');
+  if (ipGrid) ipGrid.style.gridTemplateColumns = isOffline ? '1fr' : '1fr 1fr';
 
   // Statische IP
   const sip = st.static_ip || '–';
@@ -801,6 +913,11 @@ async function loadDashboard() {
   const sshCmd = `ssh pi@${sip !== '–' ? sip : SERVICE_IP}`;
   document.getElementById('ds-ssh-cmd').textContent  = `ssh pi@${sip}`;
   document.getElementById('ds-ssh-cmd2').textContent = `ssh pi@textspeicher.local`;
+
+  // Im Offline-Modus: SSH zeigt nur Service-IP (kein Router vorhanden)
+  if (isOffline) {
+    document.getElementById('ds-ssh-cmd').textContent = `ssh pi@${SERVICE_IP}`;
+  }
 
   // Lautstärke-Slider befüllen
   const a = st.config?.audio || {};
@@ -821,13 +938,14 @@ async function loadDashboard() {
 
 function renderSoundTable(mp3s, staticIp) {
   const body = document.getElementById('ds-sound-body');
+  const isOffline = appMode === 'offline';
   if (!mp3s.length) {
     body.innerHTML = '<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Keine Sounds — im Wizard hinzufügen</div>';
     return;
   }
   const httpBase = staticIp && staticIp !== '–' ? `http://${staticIp}` : `http://${SERVICE_IP}`;
   const rows = mp3s.map(f => {
-    const isGpio = f.trigger_type === 'gpio';
+    const isGpio = isOffline || f.trigger_type === 'gpio';
     const triggerBadge = isGpio
       ? `<span class="ttype-badge ttype-gpio">🔌 GPIO ${f.gpio_pin ?? '–'}</span>`
       : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
@@ -846,7 +964,7 @@ function renderSoundTable(mp3s, staticIp) {
   }).join('');
   body.innerHTML = `<table class="sound-table">
     <thead><tr>
-      <th>Datei</th><th>Trigger / Repeat</th><th>Endpunkt / Zuweisung</th><th>Größe</th>
+      <th>Datei</th><th>Trigger / Repeat</th><th>${isOffline ? 'GPIO-Zuweisung' : 'Endpunkt / Zuweisung'}</th><th>Größe</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
@@ -854,21 +972,32 @@ function renderSoundTable(mp3s, staticIp) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 function buildSidebar() {
-  document.getElementById('step-items').innerHTML = STEPS.map((s,i) => `
-    <div class="step-item${i===curStep?' active':i<curStep?' done':''}" onclick="tryGoStep(${i})">
-      <div class="step-num">${i<curStep?'✓':i===curStep?'●':(i+1)}</div>
+  const order = getStepOrder();
+  document.getElementById('step-items').innerHTML = order.map((pane, displayIdx) => {
+    const s = ALL_STEPS[pane];
+    const curIdx = order.indexOf(curStep);
+    const isCurrent = pane === curStep;
+    const isDone = displayIdx < curIdx;
+    return `<div class="step-item${isCurrent?' active':isDone?' done':''}" onclick="tryGoStep(${pane})">
+      <div class="step-num">${isDone?'✓':isCurrent?'●':(displayIdx+1)}</div>
       <div>
         <div class="step-label">${s.label}</div>
         <div class="step-desc">${s.desc}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
-function tryGoStep(i) { if (i <= curStep) goStep(i); }
+function tryGoStep(pane) {
+  const order = getStepOrder();
+  const targetIdx = order.indexOf(pane);
+  const curIdx = order.indexOf(curStep);
+  if (targetIdx <= curIdx) goStep(pane);
+}
 function goStep(i) {
   document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
   document.getElementById(`pane-${i}`).classList.add('active');
-  curStep = i; buildSidebar();
+  curStep = i; buildSidebar(); updateStepLabels();
   if (i === 3) loadMp3s();
   if (i === 4) loadGpio();
 }
@@ -1006,28 +1135,37 @@ async function applyCardProfile() {
 async function loadMp3s() {
   mp3List = await api('GET','/api/mp3s');
   const ul = document.getElementById('mp3-list');
+  const isOffline = appMode === 'offline';
   document.getElementById('mp3-count').textContent = `${mp3List.length} Datei${mp3List.length!==1?'en':''}`;
+  // Sounds-Untertitel anpassen
+  const sub = document.getElementById('sounds-subtitle');
+  if (sub) sub.textContent = isOffline
+    ? 'MP3s hochladen — alle Sounds werden per GPIO-Taster ausgelöst'
+    : 'MP3s hochladen & Trigger-Typ pro Sound festlegen: HTTP oder GPIO';
   if (!mp3List.length) {
     ul.innerHTML='<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Noch keine Sounds — oben hochladen</div>';
     return;
   }
   ul.innerHTML = mp3List.map(f => {
-    const isGpio = f.trigger_type === 'gpio';
+    const isGpio = isOffline || f.trigger_type === 'gpio';
     const badge  = isGpio
       ? `<span class="ttype-badge ttype-gpio">🔌 GPIO</span>`
       : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
+    const metaText = isOffline
+      ? `GPIO-Taster → ${esc(f.name)}`
+      : `/cgi-bin/index.cgi?…&spotrequest=${esc(f.name)}`;
     return `<div class="mp3-row" id="mr-${esc(f.name)}">
       <span class="mp3-icon">♪</span>
       <div class="mp3-info">
         <div class="mp3-name">${esc(f.name)}</div>
-        <div class="mp3-meta">/cgi-bin/index.cgi?…&spotrequest=${esc(f.name)}</div>
+        <div class="mp3-meta">${metaText}</div>
       </div>
       ${badge}
       ${f.repeat > 1 ? `<span class="ttype-badge" style="background:rgba(0,212,255,.08);color:var(--acc);border:1px solid rgba(0,212,255,.2)">🔁 ×${f.repeat}</span>` : ''}
       <div class="mp3-size">${f.size_kb} KB</div>
       <div class="mp3-actions">
         <button class="btn btn-primary btn-sm" onclick="playMp3('${esc(f.name)}')">▶</button>
-        <button class="btn btn-ghost btn-sm" title="Trigger-Typ" onclick="openTriggerModal('${esc(f.stem)}','${esc(f.name)}','${f.trigger_type||'http'}',${f.gpio_pin||'null'},${f.repeat||1})">⚡</button>
+        <button class="btn btn-ghost btn-sm" title="${isOffline?'GPIO & Repeat':'Trigger-Typ'}" onclick="openTriggerModal('${esc(f.stem)}','${esc(f.name)}','${f.trigger_type||'http'}',${f.gpio_pin||'null'},${f.repeat||1})">⚡</button>
         <button class="btn btn-ghost btn-sm" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')">✎</button>
         <button class="btn btn-danger btn-sm" onclick="deleteMp3('${esc(f.name)}')">✕</button>
       </div>
@@ -1072,9 +1210,11 @@ document.getElementById('rename-input').addEventListener('keydown',e=>{if(e.key=
 
 // ── Trigger-Typ Modal ─────────────────────────────────────────────────────────
 function openTriggerModal(stem, name, type, gpioPin, repeat) {
-  selectedTriggerType = type || 'http';
+  selectedTriggerType = appMode === 'offline' ? 'gpio' : (type || 'http');
   document.getElementById('tmod-stem').value = stem;
   document.getElementById('tmod-name').textContent = name;
+  // Im Offline-Modus HTTP-Option verstecken
+  document.getElementById('tsel-http').style.display = appMode === 'offline' ? 'none' : '';
   selectTrigger(selectedTriggerType);
   // GPIO-Pin Dropdown befüllen
   const sel = document.getElementById('tmod-gpio-pin');
@@ -1219,6 +1359,8 @@ async function saveGpio() {
 // ── Finish ────────────────────────────────────────────────────────────────────
 async function finishWizard() {
   await saveGpio();
+  // Modus final speichern
+  await api('POST', '/api/mode', {mode: appMode});
   await api('POST','/api/setup/finish');
   openDashboard();
 }
@@ -1297,10 +1439,16 @@ async function doDsUpload(files) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   const st=await api('GET','/api/status');
+  appMode = st.mode || 'online';
+
   if(st.setup_done){
     openDashboard();
   } else {
     document.getElementById('view-wizard').style.display='flex';
+    // Modus-Karten initialisieren
+    selectMode(appMode);
+    updateStepsOverview();
+    updateStepLabels();
     buildSidebar();
     await loadIfaces();
     await detectSources();

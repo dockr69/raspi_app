@@ -142,6 +142,24 @@ def api_change_password():
     save_cfg(cfg)
     return jsonify({"ok": True})
 
+# ── API: Modus (online/offline) ──────────────────────────────────────────────
+@app.route('/api/mode', methods=['GET', 'POST'])
+def api_mode():
+    if request.method == 'POST':
+        mode = (request.json or {}).get("mode", "online")
+        if mode not in ("online", "offline"):
+            return jsonify({"ok": False, "msg": "Ungültiger Modus"}), 400
+        cfg = load_cfg()
+        cfg["mode"] = mode
+        # Offline-Modus: alle Sounds auf GPIO umstellen
+        if mode == "offline":
+            for stem, sc in cfg.get("sounds", {}).items():
+                sc["trigger_type"] = "gpio"
+        save_cfg(cfg)
+        _write_gpio_script(cfg)
+        return jsonify({"ok": True, "mode": mode})
+    return jsonify({"mode": load_cfg().get("mode", "online")})
+
 def valid_ip(ip):
     m = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", ip)
     return bool(m) and all(0 <= int(g) <= 255 for g in m.groups())
@@ -264,6 +282,8 @@ def cgi_trigger():
     WiFi-Button Format:
     GET /cgi-bin/index.cgi?webif-pass=1&spotrequest=test1.mp3
     """
+    if load_cfg().get("mode") == "offline":
+        return 'ERROR: Offline-Modus – kein HTTP-Trigger', 403
     webif_pass  = request.args.get('webif-pass', '')
     spotrequest = request.args.get('spotrequest', '')
     if not spotrequest:
@@ -278,6 +298,8 @@ def cgi_trigger():
 
 @app.route('/play/<mp3name>')
 def play_legacy(mp3name):
+    if load_cfg().get("mode") == "offline":
+        return jsonify({"ok": False, "msg": "Offline-Modus: kein HTTP-Trigger"}), 403
     ok, msg = trigger_play(mp3name)
     return jsonify({"ok": ok, "msg": msg}), (200 if ok else 404)
 
@@ -297,6 +319,7 @@ def api_status():
         "current_ips":   get_current_ips(),
         "mp3_count":     len(list_mp3s()),
         "ssh_active":    "active" in ssh["out"],
+        "mode":          cfg.get("mode", "online"),
         "config":        cfg,
     })
 
@@ -535,13 +558,16 @@ def api_mp3_trigger():
     pin   = d.get("gpio_pin", None)
     if not stem:
         return jsonify({"ok": False, "msg": "stem fehlt"}), 400
+    cfg = load_cfg()
+    # Offline-Modus: nur GPIO erlaubt
+    if cfg.get("mode") == "offline":
+        ttype = "gpio"
     if ttype == "gpio":
         try:
             if int(pin) not in GPIO_PINS:
                 return jsonify({"ok": False, "msg": f"Ungültiger GPIO-Pin: {pin}"}), 400
         except (TypeError, ValueError):
             return jsonify({"ok": False, "msg": "GPIO-Pin muss eine Zahl sein"}), 400
-    cfg = load_cfg()
     if "sounds" not in cfg:
         cfg["sounds"] = {}
     try:
@@ -797,10 +823,12 @@ def api_terminal_exec():
 # ── Frontend ──────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
+    cfg = load_cfg()
     return render_template('index.html',
                            service_ip=SERVICE_IP,
                            hostname=HOSTNAME,
-                           setup_done=str(is_setup_done()).lower())
+                           setup_done=str(is_setup_done()).lower(),
+                           mode=cfg.get("mode", "online"))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
