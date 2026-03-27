@@ -1,8 +1,8 @@
 # Radxa Audio Konfigurator
 
-Ein webbasiertes Konfigurationssystem für den **Radxa ROCK 3A**, das Audio-Management, Netzwerkkonfiguration, Datei-Uploads und GPIO-Tasterbelegung über eine moderne Browser-Oberfläche ermöglicht – inklusive automatischem Kiosk-Modus beim Booten.
+Ein webbasiertes Konfigurationssystem für **Radxa ROCK 3A, ROCK 4C+** und kompatible Boards, das Audio-Management, Netzwerkkonfiguration, Datei-Uploads und GPIO-Tasterbelegung über eine moderne Browser-Oberfläche ermöglicht – inklusive automatischem Kiosk-Modus beim Booten.
 
-![Platform](https://img.shields.io/badge/Platform-Radxa%20ROCK%203A-orange)
+![Platform](https://img.shields.io/badge/Platform-Radxa%20ROCK%203A%20%7C%204C+-orange)
 ![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-2.3+-lightgrey?logo=flask)
 ![License](https://img.shields.io/badge/License-Private-red)
@@ -34,7 +34,7 @@ Ein webbasiertes Konfigurationssystem für den **Radxa ROCK 3A**, das Audio-Mana
 
 ## Übersicht
 
-Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A in ein vollständiges, netzwerkfähiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen 5-Schritte-Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
+Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, ROCK 4C+ oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollständiges, netzwerkfähiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen 5-Schritte-Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
 
 - **Immer erreichbar** unter der festen Service-IP `10.0.0.10` sowie `http://textspeicher.local`
 - **Audiodateien** per Drag-and-Drop hochladen – automatische Konvertierung via ffmpeg, bis zu 4 Dateien gleichzeitig
@@ -51,6 +51,7 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A in ein vollstän
 | **Einrichtungsassistent** | 5-Schritte-Wizard für Erstkonfiguration |
 | **Netzwerk** | Statische IP-Konfiguration mit permanenter Service-IP `10.0.0.10` |
 | **Audio** | PulseAudio/PipeWire Quellauswahl, Lautstärke, automatisches Mute während Wiedergabe |
+| **Combo Jack** | 3,5-mm-TRRS-Konfiguration: Soundkarte & Profil wählen (z. B. Headset-Modus für Eingang + Ausgang) |
 | **Datei-Upload** | Beliebige Audioformate – ffmpeg konvertiert automatisch zu MP3 (bis zu 4 parallel) |
 | **HTTP-Trigger** | Audiodatei per GET-Request abspielen, kompatibel mit externen Systemen |
 | **GPIO-Taster** | Physische Taster auf GPIO-Pins direkt mit Sounds verknüpfen |
@@ -65,7 +66,7 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A in ein vollstän
 
 ## Systemanforderungen
 
-- **Hardware**: Radxa ROCK 3A (oder kompatibler ARM-Linux-Einplatinencomputer)
+- **Hardware**: Radxa ROCK 3A, ROCK 4C+ (oder kompatibler ARM-Linux-Einplatinencomputer mit libgpiod-Unterstützung)
 - **Betriebssystem**: Debian/Ubuntu-basiertes Linux (arm64)
 - **Zugriff**: Root- oder sudo-Berechtigung
 - **Netzwerk**: Aktive Netzwerkverbindung während der Installation
@@ -159,6 +160,15 @@ Nach Abschluss des Assistenten wechselt die UI automatisch in das **Status-Dashb
 - Mute/Unmute-Steuerung einzelner Quellen per API
 - Testfunktion zum Abspielen einer Testsequenz direkt aus der UI
 
+### Combo Jack / 3,5-mm-TRRS
+
+Boards wie der Radxa ROCK 3A und ROCK 4C+ haben einen kombinierten Headset-Anschluss (TRRS). Damit der Eingang (Mikrofon / Line-In) an diesem Anschluss aktiv ist, muss das richtige PulseAudio-Kartenprofil gesetzt werden:
+
+- Alle verfügbaren Soundkarten werden automatisch erkannt
+- Alle Profile der gewählten Karte werden aufgelistet; Headset-Profile sind hervorgehoben
+- Empfohlenes Profil: `output:analog-stereo+input:headset-head-unit`
+- Profil wird sofort per `pactl set-card-profile` aktiviert – kein Neustart erforderlich
+
 ### Sound-Bibliothek & Uploads
 
 - Unterstützt **alle gängigen Audioformate** – ffmpeg konvertiert automatisch zu MP3
@@ -199,10 +209,12 @@ Physische Taster können direkt mit Audiodateien verknüpft werden:
 - Jedem Sound kann ein GPIO-Pin zugewiesen werden
 - Bei Tastendruck (fallende Flanke) wird die zugewiesene Datei abgespielt
 - 200 ms Entprellzeit (Debounce)
-- Pull-up-Widerstände werden automatisch aktiviert (BCM-Modus)
+- Pull-up-Widerstände werden automatisch aktiviert
 - Das System generiert automatisch ein Python-Daemon-Skript (`/usr/local/bin/radxa_gpio.py`)
 - Der Daemon läuft als systemd-Dienst und startet automatisch beim Booten
 - Neue GPIO-Zuweisungen werden sofort übernommen – der Daemon wird neu generiert und neu gestartet
+- Verwendet **`python3-gpiod`** (libgpiod) statt RPi.GPIO → kompatibel mit Radxa ROCK 3A, 4C+ und allen libgpiod-fähigen Boards
+- Unterstützt automatisch gpiod 2.x (Debian Bookworm) und gpiod 1.x
 
 ---
 
@@ -242,6 +254,8 @@ Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
 | Methode | Endpunkt | Beschreibung |
 |---|---|---|
 | GET | `/api/audio/sources` | PulseAudio-Quellen auflisten |
+| GET | `/api/audio/cards` | Soundkarten mit Profilen auflisten |
+| POST | `/api/audio/card-profile` | Kartenprofil setzen (z. B. Headset für Combo Jack) |
 | POST | `/api/audio/save` | Audio-Konfiguration speichern |
 | POST | `/api/audio/mute` | Quelle stummschalten / Stummschaltung aufheben |
 | POST | `/api/audio/test` | Test-Audio abspielen |
@@ -358,7 +372,9 @@ Upload (beliebiges Format)
 
 ```python
 # /usr/local/bin/radxa_gpio.py (auto-generiert)
-# BCM-Modus, Pull-up, 200ms Debounce
+# Bibliothek: python3-gpiod (libgpiod) — kompatibel mit Radxa ROCK 3A, 4C+ und anderen Boards
+# Pull-up, Falling Edge, 200ms Debounce
+# Automatische API-Erkennung: gpiod 2.x (Bookworm) mit Fallback auf gpiod 1.x
 # Wird bei jeder Änderung der GPIO-Konfiguration neu erstellt
 # Läuft als systemd-Dienst radxa-audio-gpio
 ```
@@ -407,13 +423,13 @@ flask>=2.3
 | `openbox` | Leichtgewichtige Desktop-Umgebung |
 | `lightdm` | Display Manager mit Autologin |
 | `python3-flask` | Web-Framework |
-| `RPi.GPIO` | GPIO-Steuerung (für generierten Daemon) |
+| `python3-gpiod` | GPIO-Steuerung (libgpiod — Radxa ROCK 3A, 4C+ und andere Boards) |
 
 ---
 
 ## Autor
 
-Entwickelt von **Fabian** für den internen Einsatz auf Radxa ROCK 3A Hardware.
+Entwickelt von **Fabian** für den internen Einsatz auf Radxa ROCK 3A und ROCK 4C+ Hardware.
 
 ---
 
