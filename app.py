@@ -90,10 +90,12 @@ def get_current_ips():
                 ips.append({"iface": iface, "ip": ip, "cidr": cidr})
     return ips
 
-def ensure_service_ip():
+def ensure_service_ip(iface=None):
     check = run(f"ip addr show | grep '{SERVICE_IP}/'")
     if not (check["ok"] and SERVICE_IP in check["out"]):
-        iface = get_interfaces()[0]
+        if iface is None:
+            cfg = load_cfg()
+            iface = cfg.get("network", {}).get("interface") or get_interfaces()[0]
         run(f"ip addr add {SERVICE_IP}/{SERVICE_MASK} dev {iface} "
             f"label {iface}:service 2>/dev/null")
 
@@ -135,10 +137,10 @@ def trigger_play(name):
     stem = sanitize(os.path.splitext(name)[0])
     path = os.path.join(MP3_FOLDER, stem + ".mp3")
     if not os.path.isfile(path):
-        # Fallback: unsanitized
-        p2 = os.path.join(MP3_FOLDER,
-                          name if name.endswith('.mp3') else name + '.mp3')
-        if os.path.isfile(p2):
+        # Fallback: unsanitized, aber sicher
+        safe_name = os.path.basename(name if name.endswith('.mp3') else name + '.mp3')
+        p2 = _safe_mp3_path(safe_name)
+        if p2 and os.path.isfile(p2):
             path = p2
             stem = os.path.basename(path)[:-4]
         else:
@@ -197,7 +199,7 @@ def api_status():
         "static_iface":  net.get("interface", ""),
         "current_ips":   get_current_ips(),
         "mp3_count":     len(list_mp3s()),
-        "ssh_active":    ssh["out"] == "active",
+        "ssh_active":    "active" in ssh["out"],
         "config":        cfg,
     })
 
@@ -227,6 +229,12 @@ def api_net_apply():
     mask    = d.get("mask", "255.255.255.0")
     gateway = d.get("gateway", "")
     dns     = d.get("dns", "8.8.8.8")
+    # Interface-Name absichern (Dateiname + Shell-Argument)
+    if not re.match(r'^[a-zA-Z0-9_:-]+$', iface):
+        return jsonify({"ok": False, "errors": ["Ungültiges Interface"]}), 400
+    # IP-Adressen serverseitig validieren
+    if not valid_ip(ip) or not valid_ip(gateway):
+        return jsonify({"ok": False, "errors": ["Ungültige IP oder Gateway"]}), 400
     try:
         prefix = sum(bin(int(x)).count("1") for x in mask.split("."))
     except Exception:
@@ -250,7 +258,7 @@ def api_net_apply():
 
     run(f"ip addr add {ip}/{prefix} dev {iface} 2>/dev/null")
     run(f"ip route add default via {gateway} dev {iface} 2>/dev/null")
-    ensure_service_ip()
+    ensure_service_ip(iface)
 
     cfg = load_cfg()
     cfg["network"] = d
@@ -260,7 +268,7 @@ def api_net_apply():
 @app.route('/api/network/ping', methods=['POST'])
 def api_ping():
     target = request.json.get("target", "8.8.8.8")
-    if not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", target):
+    if not valid_ip(target):
         return jsonify({"ok": False, "msg": "Ungültiges Ziel"}), 400
     r = run(f"ping -c 2 -W 2 {target}")
     return jsonify({"ok": r["ok"], "msg": r["out"] or r["err"]})
@@ -334,10 +342,11 @@ def api_mp3_delete():
     path = _safe_mp3_path(name)
     if not path or not os.path.isfile(path):
         return jsonify({"ok": False, "msg": "nicht gefunden"}), 404
+    stem = os.path.basename(path)[:-4]
     os.remove(path)
     # Sound-Config bereinigen
     cfg = load_cfg()
-    cfg.get("sounds", {}).pop(name[:-4], None)
+    cfg.get("sounds", {}).pop(stem, None)
     save_cfg(cfg)
     return jsonify({"ok": True})
 
@@ -373,6 +382,12 @@ def api_mp3_trigger():
     pin   = d.get("gpio_pin", None)
     if not stem:
         return jsonify({"ok": False, "msg": "stem fehlt"}), 400
+    if ttype == "gpio":
+        try:
+            if int(pin) not in GPIO_PINS:
+                return jsonify({"ok": False, "msg": f"Ungültiger GPIO-Pin: {pin}"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "msg": "GPIO-Pin muss eine Zahl sein"}), 400
     cfg = load_cfg()
     if "sounds" not in cfg:
         cfg["sounds"] = {}
@@ -465,9 +480,15 @@ def api_gpio_save():
     # Neue GPIO-Mappings setzen
     for pin, stem in gpio.items():
         if stem and stem != "— keiner —":
+            try:
+                pin_int = int(pin)
+            except (TypeError, ValueError):
+                continue
+            if pin_int not in GPIO_PINS:
+                continue
             cfg["sounds"].setdefault(stem, {})
             cfg["sounds"][stem]["trigger_type"] = "gpio"
-            cfg["sounds"][stem]["gpio_pin"] = int(pin)
+            cfg["sounds"][stem]["gpio_pin"] = pin_int
 
     save_cfg(cfg)
     _write_gpio_script(cfg)
@@ -479,6 +500,8 @@ def _write_gpio_script(cfg):
         if sc.get("trigger_type") == "gpio" and sc.get("gpio_pin") is not None:
             gpio_map[sc["gpio_pin"]] = stem
     if not gpio_map:
+        # Keine GPIO-Sounds mehr → Daemon stoppen
+        run("systemctl stop radxa-audio-gpio 2>/dev/null")
         return
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
     lines = [
@@ -486,7 +509,7 @@ def _write_gpio_script(cfg):
         "# GPIO-Daemon – auto-generiert von Radxa Audio Konfigurator",
         "import RPi.GPIO as GPIO, subprocess, time, os",
         f"MP3_FOLDER  = '{MP3_FOLDER}'",
-        f"LINE_SOURCE = '{src}'",
+        f"LINE_SOURCE = {repr(src)}",
         f"GPIO_MAP    = {repr(gpio_map)}",
         "GPIO.setmode(GPIO.BCM)",
         "for p in GPIO_MAP: GPIO.setup(p, GPIO.IN, pull_up_down=GPIO.PUD_UP)",

@@ -861,7 +861,7 @@ function closeModal() { document.getElementById('rename-modal').classList.remove
 async function doRename() {
   const old=document.getElementById('rename-old').value;
   const nw=document.getElementById('rename-input').value.trim();
-  if(!nw) return;
+  if(!nw){ pill('sounds-status','✗ Name darf nicht leer sein','err'); closeModal(); return; }
   const r=await api('POST','/api/mp3s/rename',{old,new:nw});
   if(r.ok){ closeModal(); pill('sounds-status',`✓ → ${r.new_name}`,'ok'); loadMp3s(); }
   else pill('sounds-status',`✗ ${r.msg}`,'err');
@@ -889,11 +889,14 @@ function selectTrigger(type) {
   const hint = document.getElementById('tmod-hint');
   if (type==='http') {
     hint.className='spill show info';
+    hint.style.color='';
+    hint.style.background='';
     hint.innerHTML='HTTP: WiFi-Button sendet GET an /cgi-bin/index.cgi?webif-pass=1&spotrequest=…';
   } else {
-    hint.className='spill show info';
+    hint.className='spill show';
     hint.style.color='var(--purple)';
     hint.style.background='var(--purple-dim)';
+    hint.style.border='1px solid rgba(179,157,255,.2)';
     hint.innerHTML='GPIO: Physischer Taster löst direkt aus — kein HTTP-Trigger für diesen Sound.';
   }
 }
@@ -906,6 +909,8 @@ async function saveTriggerType() {
     closeTriggerModal();
     pill('sounds-status',`✓ Trigger für ${stem}: ${selectedTriggerType.toUpperCase()}`,'ok');
     loadMp3s();
+  } else {
+    pill('sounds-status',`✗ ${r.msg || 'Fehler beim Speichern'}`,'err');
   }
 }
 document.getElementById('trigger-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeTriggerModal();});
@@ -979,7 +984,12 @@ async function doUpload(files) {
 async function loadGpio() {
   if(!mp3List.length) mp3List=await api('GET','/api/mp3s');
   const cfg=await api('GET','/api/status');
-  const mapping=cfg.config?.gpio||{};
+  // GPIO-Mapping aus sounds-Config rekonstruieren: {pin: stem}
+  const sounds = cfg.config?.sounds || {};
+  const mapping = {};
+  for (const [stem, sc] of Object.entries(sounds)) {
+    if (sc.trigger_type === 'gpio' && sc.gpio_pin != null) mapping[sc.gpio_pin] = stem;
+  }
   // Nur GPIO-Sounds anzeigen
   const gpioSounds=mp3List.filter(f=>f.trigger_type==='gpio');
   const opts=['— keiner —',...gpioSounds.map(f=>f.stem)];
