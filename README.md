@@ -50,12 +50,13 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5
 |---|---|
 | **Einrichtungsassistent** | 5-Schritte-Wizard für Erstkonfiguration |
 | **Netzwerk** | Statische IP-Konfiguration mit permanenter Service-IP `10.0.0.10` |
-| **Audio** | PulseAudio/PipeWire Quellauswahl, Lautstärke, automatisches Mute während Wiedergabe |
+| **Audio** | Getrennte Lautstärkeregler für Ausgang (Line-Out) und Eingang (Line-In), automatisches Mute während Wiedergabe |
 | **Combo Jack** | 3,5-mm-TRRS-Konfiguration: Soundkarte & Profil wählen (z. B. Headset-Modus für Eingang + Ausgang) |
 | **Datei-Upload** | Beliebige Audioformate – ffmpeg konvertiert automatisch zu MP3 (bis zu 4 parallel) |
 | **HTTP-Trigger** | Audiodatei per GET-Request abspielen, kompatibel mit externen Systemen |
 | **GPIO-Taster** | Physische Taster auf GPIO-Pins direkt mit Sounds verknüpfen |
 | **Trigger-Typ** | Pro Sound individuell: HTTP, GPIO oder gesperrt konfigurierbar |
+| **Wiederholungen** | Pro Sound einstellbar: 1–10× Wiederholen (HTTP-Trigger, GPIO und Play-Button) |
 | **GPIO-Daemon** | Automatisch generiertes Python-Skript als systemd-Dienst |
 | **Status-Dashboard** | Übersicht über alle IPs, Sounds, Trigger-URLs und Systemstatus |
 | **Kiosk-Modus** | Chromium im Vollbild beim Booten (Openbox + LightDM) |
@@ -172,7 +173,10 @@ Nach Abschluss des Assistenten wechselt die UI automatisch in das **Status-Dashb
 ### Audio-Konfiguration
 
 - Erkennt alle verfügbaren PulseAudio/PipeWire-Eingabequellen automatisch
-- Einstellbare Lautstärke (0–100 %)
+- **Getrennter Lautstärkeregler für Ausgang und Eingang** (0–100 %)
+  - 🔊 **Ausgang (Line-Out/Lautsprecher)** → `pactl set-sink-volume @DEFAULT_SINK@`
+  - 🎙 **Eingang (Line-In/Mikrofon)** → `pactl set-source-volume <quelle>`
+  - Beide Regler im Wizard-Schritt 2 und direkt auf dem Dashboard verfügbar
 - Während der Audiowiedergabe wird die Eingangsquelle automatisch stummgeschaltet und danach wieder aktiviert
 - Mute/Unmute-Steuerung einzelner Quellen per API
 - Testfunktion zum Abspielen einer Testsequenz direkt aus der UI
@@ -197,6 +201,9 @@ Boards wie der Radxa ROCK 3A und ROCK 4C+ haben einen kombinierten Headset-Ansch
 - Duplikate werden mit `_1`, `_2` etc. durchnummeriert
 - Dateien können umbenannt und gelöscht werden
 - **Trigger-Typ pro Sound** wählbar (HTTP, GPIO oder gesperrt) – jederzeit änderbar
+- **Wiederholungen pro Sound** einstellbar (1–10×) – gilt für HTTP-Trigger, GPIO und Play-Button
+  - Ablauf: Eingang stumm → N-mal abspielen → Eingang wieder aktiv
+  - Badge `🔁 ×N` in Sound-Liste und Dashboard wenn > 1×
 - Thread-Mutex verhindert gleichzeitige Wiedergabe mehrerer Dateien
 
 ### HTTP-Trigger
@@ -273,7 +280,7 @@ Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
 | GET | `/api/audio/sources` | PulseAudio-Quellen auflisten |
 | GET | `/api/audio/cards` | Soundkarten mit Profilen auflisten |
 | POST | `/api/audio/card-profile` | Kartenprofil setzen (z. B. Headset für Combo Jack) |
-| POST | `/api/audio/save` | Audio-Konfiguration speichern |
+| POST | `/api/audio/save` | Audio-Konfiguration speichern (source, volume, input_volume) |
 | POST | `/api/audio/mute` | Quelle stummschalten / Stummschaltung aufheben |
 | POST | `/api/audio/test` | Test-Audio abspielen |
 
@@ -285,7 +292,7 @@ Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
 | POST | `/api/mp3s/play` | MP3 abspielen |
 | POST | `/api/mp3s/delete` | MP3 löschen |
 | POST | `/api/mp3s/rename` | MP3 umbenennen |
-| POST | `/api/mp3s/trigger` | Trigger-Typ und GPIO-Pin pro Sound setzen |
+| POST | `/api/mp3s/trigger` | Trigger-Typ, GPIO-Pin und Wiederholungen pro Sound setzen |
 
 ### GPIO & Trigger
 | Methode | Endpunkt | Beschreibung |
@@ -343,7 +350,8 @@ Alle Einstellungen werden unter `/etc/radxa_audio/config.json` gespeichert:
   },
   "audio": {
     "source": "@DEFAULT_SOURCE@",
-    "volume": 80
+    "volume": 80,
+    "input_volume": 80
   },
   "trigger": {
     "webif_pass": "1"
@@ -351,11 +359,13 @@ Alle Einstellungen werden unter `/etc/radxa_audio/config.json` gespeichert:
   "sounds": {
     "jingle": {
       "trigger_type": "http",
-      "gpio_pin": null
+      "gpio_pin": null,
+      "repeat": 1
     },
     "ansage": {
       "trigger_type": "gpio",
-      "gpio_pin": 17
+      "gpio_pin": 17,
+      "repeat": 3
     }
   }
 }
