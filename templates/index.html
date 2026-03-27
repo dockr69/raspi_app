@@ -249,6 +249,32 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 <body>
 
 <!-- ══════════════════════════════════════════
+     PASSWORT-MODAL
+══════════════════════════════════════════ -->
+<div class="modal-bg" id="pw-modal">
+  <div class="modal" style="max-width:360px">
+    <h3>🔑 Passwort ändern</h3>
+    <div class="frow" style="margin-top:14px">
+      <div class="flabel">Aktuell</div>
+      <div class="fwrap"><input type="password" id="pw-old" autocomplete="current-password"></div>
+    </div>
+    <div class="frow">
+      <div class="flabel">Neu</div>
+      <div class="fwrap"><input type="password" id="pw-new" autocomplete="new-password"></div>
+    </div>
+    <div class="frow">
+      <div class="flabel">Wiederholen</div>
+      <div class="fwrap"><input type="password" id="pw-new2" autocomplete="new-password"></div>
+    </div>
+    <div class="spill" id="pw-status"></div>
+    <div class="brow" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="closePwModal()">Abbrechen</button>
+      <button class="btn btn-primary btn-sm" onclick="doChangePassword()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
      TERMINAL PANEL (global, fixed bottom)
 ══════════════════════════════════════════ -->
 <div class="term-panel" id="term-panel">
@@ -279,6 +305,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     <div class="tchip" id="ds-ssh-chip" style="display:none">SSH <b id="ds-ssh-val">–</b></div>
     <button class="tbtn" onclick="toggleTerminal()" title="Terminal">⌨</button>
     <button class="tbtn" onclick="openWizard()" title="Einstellungen">⚙</button>
+    <button class="tbtn" onclick="openPwModal()" title="Passwort ändern">🔑</button>
+    <a class="tbtn" href="/logout" title="Abmelden">⏻</a>
   </div>
   <div class="ds-content">
 
@@ -421,6 +449,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="tlogo"><div class="tpulse"></div>AUDIO · WIZARD</div>
       <div class="tsep"></div>
       <button class="tbtn" id="btn-to-dashboard" onclick="openDashboard()" style="display:none" title="Zum Status">←</button>
+      <button class="tbtn" onclick="openPwModal()" title="Passwort ändern">🔑</button>
+      <a class="tbtn" href="/logout" title="Abmelden">⏻</a>
     </header>
 
     <div class="content" id="wizard-content">
@@ -1297,6 +1327,28 @@ async function init() {
   }
 }
 init();
+
+// ── Passwort ──────────────────────────────────────────────────────────────────
+function openPwModal() {
+  document.getElementById('pw-old').value='';
+  document.getElementById('pw-new').value='';
+  document.getElementById('pw-new2').value='';
+  document.getElementById('pw-status').className='spill';
+  document.getElementById('pw-modal').classList.add('show');
+  setTimeout(()=>document.getElementById('pw-old').focus(),60);
+}
+function closePwModal() { document.getElementById('pw-modal').classList.remove('show'); }
+async function doChangePassword() {
+  const old  = document.getElementById('pw-old').value;
+  const nw   = document.getElementById('pw-new').value;
+  const nw2  = document.getElementById('pw-new2').value;
+  if (nw !== nw2) { pill('pw-status','✗ Passwörter stimmen nicht überein','err'); return; }
+  if (nw.length < 6) { pill('pw-status','✗ Mindestens 6 Zeichen','err'); return; }
+  const r = await api('POST','/api/auth/change-password',{old_password:old,new_password:nw});
+  if (r.ok) { pill('pw-status','✓ Gespeichert','ok'); setTimeout(closePwModal,1200); }
+  else pill('pw-status','✗ '+(r.msg||'Fehler'),'err');
+}
+document.getElementById('pw-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closePwModal();});
 
 // ── Terminal ──────────────────────────────────────────────────────────────────
 (function() {

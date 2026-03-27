@@ -7,8 +7,9 @@ Radxa ROCK 3A – Audio Konfigurator
 · Hostname: textspeicher  →  textspeicher.local (mDNS)
 """
 
-from flask import Flask, render_template, request, jsonify
-import subprocess, os, json, threading, re
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
+import subprocess, os, json, threading, re, secrets
 
 app = Flask(__name__)
 
@@ -21,8 +22,27 @@ MP3_FOLDER      = "/etc/radxa_audio/sounds"
 SETUP_DONE_FILE = "/etc/radxa_audio/.setup_done"
 GPIO_PINS       = [4, 17, 18, 22, 23, 24, 25, 27]
 
+SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
+DEFAULT_USERNAME = "pi"
+DEFAULT_PASSWORD = "Synthese734#"
+
 os.makedirs(MP3_FOLDER, exist_ok=True)
 os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+
+# ── Secret Key (persistent, damit Sessions nach Neustart gültig bleiben) ──────
+def _load_secret_key():
+    if os.path.exists(SECRET_KEY_FILE):
+        with open(SECRET_KEY_FILE) as f:
+            k = f.read().strip()
+            if k:
+                return k
+    k = secrets.token_hex(32)
+    with open(SECRET_KEY_FILE, 'w') as f:
+        f.write(k)
+    os.chmod(SECRET_KEY_FILE, 0o600)
+    return k
+
+app.secret_key = _load_secret_key()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def run(cmd, timeout=20):
@@ -52,6 +72,72 @@ def save_cfg(data):
 def sanitize(name):
     name = re.sub(r'\s+', '_', name.strip())
     return re.sub(r'[^a-zA-Z0-9_\-]', '', name).lower()
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+def get_auth():
+    """Liest Credentials aus Config; legt Defaults an falls nicht vorhanden."""
+    cfg = load_cfg()
+    auth = cfg.get("auth", {})
+    if not auth.get("username") or not auth.get("password_hash"):
+        auth = {
+            "username":      DEFAULT_USERNAME,
+            "password_hash": generate_password_hash(DEFAULT_PASSWORD),
+        }
+        cfg["auth"] = auth
+        save_cfg(cfg)
+    return auth
+
+@app.before_request
+def check_auth():
+    """Alle Routes außer Login/Logout/CGI-Trigger erfordern eine Session."""
+    public_paths = {'/login', '/logout'}
+    if (request.path in public_paths
+            or request.path.startswith('/play/')
+            or request.path.startswith('/cgi-bin/')):
+        return
+    if not session.get('logged_in'):
+        if request.path.startswith('/api/') or request.is_json:
+            return jsonify({"ok": False, "msg": "Nicht angemeldet"}), 401
+        return redirect(url_for('login_page'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    if session.get('logged_in'):
+        return redirect(url_for('index'))
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        auth = get_auth()
+        if username == auth['username'] and check_password_hash(auth['password_hash'], password):
+            session['logged_in'] = True
+            session.permanent = False
+            return redirect(url_for('index'))
+        error = "Falscher Benutzername oder Passwort"
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login_page'))
+
+@app.route('/api/auth/change-password', methods=['POST'])
+def api_change_password():
+    d        = request.json or {}
+    old_pw   = d.get('old_password', '')
+    new_pw   = d.get('new_password', '')
+    if not new_pw or len(new_pw) < 6:
+        return jsonify({"ok": False, "msg": "Neues Passwort zu kurz (min. 6 Zeichen)"}), 400
+    auth = get_auth()
+    if not check_password_hash(auth['password_hash'], old_pw):
+        return jsonify({"ok": False, "msg": "Aktuelles Passwort falsch"}), 403
+    cfg = load_cfg()
+    cfg['auth'] = {
+        "username":      auth['username'],
+        "password_hash": generate_password_hash(new_pw),
+    }
+    save_cfg(cfg)
+    return jsonify({"ok": True})
 
 def valid_ip(ip):
     m = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", ip)
