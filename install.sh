@@ -181,7 +181,9 @@ ok "GPIO-Service eingerichtet"
 # ── 9. Kiosk-Modus ─────────────────────────────────────────────────
 log "Konfiguriere Chromium Kiosk-Modus..."
 KIOSK_USER="${SUDO_USER:-pi}"
-[ -z "$KIOSK_USER" ] || ! id "$KIOSK_USER" &>/dev/null && KIOSK_USER="pi"
+if [ -z "$KIOSK_USER" ] || ! id "$KIOSK_USER" &>/dev/null; then
+  KIOSK_USER="pi"
+fi
 KIOSK_HOME=$(getent passwd "$KIOSK_USER" 2>/dev/null | cut -d: -f6 || echo "/home/$KIOSK_USER")
 
 # LightDM Autologin

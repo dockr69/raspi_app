@@ -44,12 +44,26 @@ def load_cfg():
         return {}
 
 def save_cfg(data):
-    with open(CONFIG_FILE, "w") as f:
+    tmp = CONFIG_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp, CONFIG_FILE)
 
 def sanitize(name):
     name = re.sub(r'\s+', '_', name.strip())
     return re.sub(r'[^a-zA-Z0-9_\-]', '', name).lower()
+
+def valid_ip(ip):
+    m = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", ip)
+    return bool(m) and all(0 <= int(g) <= 255 for g in m.groups())
+
+def _safe_mp3_path(name):
+    """Gibt absoluten Pfad zurück wenn er innerhalb MP3_FOLDER liegt, sonst None."""
+    base = os.path.realpath(MP3_FOLDER)
+    path = os.path.realpath(os.path.join(MP3_FOLDER, name))
+    if path.startswith(base + os.sep) and path != base:
+        return path
+    return None
 
 def is_setup_done():
     return os.path.isfile(SETUP_DONE_FILE)
@@ -111,9 +125,9 @@ _play_lock = threading.Lock()
 
 def _play_thread(path, source):
     with _play_lock:
-        run(f"pactl set-source-mute {source} 1")
+        run(f"pactl set-source-mute '{source}' 1")
         run(f"mpg123 -q '{path}'", timeout=300)
-        run(f"pactl set-source-mute {source} 0")
+        run(f"pactl set-source-mute '{source}' 0")
 
 def trigger_play(name):
     """Zentraler Play-Einstiegspunkt. Gibt (ok, msg) zurück."""
@@ -198,11 +212,10 @@ def api_net_validate():
     ip  = d.get("ip", "")
     gw  = d.get("gateway", "")
     dns = d.get("dns", "")
-    ipr = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
     errors = []
-    if not ipr.match(ip):           errors.append("IP-Adresse ungültig")
-    if not ipr.match(gw):           errors.append("Gateway ungültig")
-    if dns and not ipr.match(dns):  errors.append("DNS-Server ungültig")
+    if not valid_ip(ip):           errors.append("IP-Adresse ungültig")
+    if not valid_ip(gw):           errors.append("Gateway ungültig")
+    if dns and not valid_ip(dns):  errors.append("DNS-Server ungültig")
     if ip == SERVICE_IP:            errors.append(f"{SERVICE_IP} ist reserviert")
     return jsonify({"ok": not errors, "errors": errors})
 
@@ -272,7 +285,7 @@ def api_audio_save():
 @app.route('/api/audio/mute', methods=['POST'])
 def api_mute():
     d = request.json
-    run(f"pactl set-source-mute {d.get('source','@DEFAULT_SOURCE@')} "
+    run(f"pactl set-source-mute '{d.get('source','@DEFAULT_SOURCE@')}' "
         f"{'1' if d.get('mute') else '0'}")
     return jsonify({"ok": True})
 
@@ -307,8 +320,8 @@ def api_mp3s():
 @app.route('/api/mp3s/play', methods=['POST'])
 def api_mp3_play():
     name = request.json.get("name", "")
-    path = os.path.join(MP3_FOLDER, name)
-    if not os.path.isfile(path):
+    path = _safe_mp3_path(name)
+    if not path or not os.path.isfile(path):
         return jsonify({"ok": False, "msg": "nicht gefunden"}), 404
     cfg = load_cfg()
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
@@ -318,8 +331,8 @@ def api_mp3_play():
 @app.route('/api/mp3s/delete', methods=['POST'])
 def api_mp3_delete():
     name = request.json.get("name", "")
-    path = os.path.join(MP3_FOLDER, name)
-    if not os.path.isfile(path):
+    path = _safe_mp3_path(name)
+    if not path or not os.path.isfile(path):
         return jsonify({"ok": False, "msg": "nicht gefunden"}), 404
     os.remove(path)
     # Sound-Config bereinigen
@@ -332,17 +345,19 @@ def api_mp3_delete():
 def api_mp3_rename():
     old     = request.json.get("old", "")
     new_san = sanitize(request.json.get("new", "")) + ".mp3"
-    old_p   = os.path.join(MP3_FOLDER, old)
-    new_p   = os.path.join(MP3_FOLDER, new_san)
-    if not os.path.isfile(old_p):
+    old_p   = _safe_mp3_path(old)
+    new_p   = _safe_mp3_path(new_san)
+    if not old_p or not os.path.isfile(old_p):
         return jsonify({"ok": False, "msg": "nicht gefunden"}), 404
+    if not new_p:
+        return jsonify({"ok": False, "msg": "Ungültiger Name"}), 400
     if os.path.exists(new_p):
         return jsonify({"ok": False, "msg": "Name bereits vergeben"}), 409
     os.rename(old_p, new_p)
     # Sound-Config mitumbenennen
     cfg    = load_cfg()
     sounds = cfg.get("sounds", {})
-    old_stem = old[:-4]
+    old_stem = os.path.basename(old_p)[:-4]
     new_stem = new_san[:-4]
     if old_stem in sounds:
         sounds[new_stem] = sounds.pop(old_stem)
@@ -382,7 +397,7 @@ def api_upload():
     for f in request.files.getlist('file'):
         orig = f.filename or "audio"
         stem = sanitize(os.path.splitext(orig)[0]) or "audio"
-        ext  = os.path.splitext(orig)[1].lower()
+        ext  = re.sub(r'[^a-zA-Z0-9.]', '', os.path.splitext(orig)[1].lower())
         tmp  = f"/tmp/_radxa_{stem}_{os.getpid()}_{len(jobs)}{ext}"
         f.save(tmp)
         # Ausgabe-Namen unter Lock reservieren → kein Namenskonflikt zwischen Threads
@@ -438,9 +453,12 @@ def api_gpio_save():
     if "sounds" not in cfg:
         cfg["sounds"] = {}
 
-    # Alle bestehenden GPIO-Assignments clearen
+    # Stems die neu zugewiesen werden
+    new_gpio_stems = {stem for stem in gpio.values() if stem and stem != "— keiner —"}
+
+    # Nur GPIO-Sounds resetten die nicht mehr zugewiesen werden
     for stem, sc in cfg["sounds"].items():
-        if sc.get("trigger_type") == "gpio":
+        if sc.get("trigger_type") == "gpio" and stem not in new_gpio_stems:
             sc["trigger_type"] = "http"
             sc["gpio_pin"] = None
 
@@ -489,6 +507,7 @@ def _write_gpio_script(cfg):
     with open("/usr/local/bin/radxa_gpio.py", "w") as f:
         f.write("\n".join(lines) + "\n")
     os.chmod("/usr/local/bin/radxa_gpio.py", 0o755)
+    run("systemctl restart radxa-audio-gpio 2>/dev/null")
 
 # ── API: Setup ────────────────────────────────────────────────────────────────
 @app.route('/api/setup/finish', methods=['POST'])
