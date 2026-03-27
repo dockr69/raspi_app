@@ -1,0 +1,420 @@
+# Radxa Audio Konfigurator
+
+Ein webbasiertes Konfigurationssystem für den **Radxa ROCK 3A**, das Audio-Management, Netzwerkkonfiguration, Datei-Uploads und GPIO-Tasterbelegung über eine moderne Browser-Oberfläche ermöglicht – inklusive automatischem Kiosk-Modus beim Booten.
+
+![Platform](https://img.shields.io/badge/Platform-Radxa%20ROCK%203A-orange)
+![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)
+![Flask](https://img.shields.io/badge/Flask-2.3+-lightgrey?logo=flask)
+![License](https://img.shields.io/badge/License-Private-red)
+
+---
+
+## Inhaltsverzeichnis
+
+- [Übersicht](#übersicht)
+- [Features](#features)
+- [Systemanforderungen](#systemanforderungen)
+- [Installation](#installation)
+- [Zugang nach der Installation](#zugang-nach-der-installation)
+- [Einrichtungsassistent](#einrichtungsassistent)
+- [Funktionen im Detail](#funktionen-im-detail)
+  - [Netzwerkkonfiguration](#netzwerkkonfiguration)
+  - [Audio-Konfiguration](#audio-konfiguration)
+  - [Sound-Bibliothek & Uploads](#sound-bibliothek--uploads)
+  - [HTTP-Trigger](#http-trigger)
+  - [GPIO-Taster](#gpio-taster)
+- [Status-Dashboard](#status-dashboard)
+- [API-Referenz](#api-referenz)
+- [Systemdienste](#systemdienste)
+- [Technische Details](#technische-details)
+- [Projektstruktur](#projektstruktur)
+- [Abhängigkeiten](#abhängigkeiten)
+
+---
+
+## Übersicht
+
+Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A in ein vollständiges, netzwerkfähiges Audiowiedergabe-System. Nach der einmaligen Einrichtung über einen 5-Schritte-Assistenten steht das Gerät als eigenständiger Audio-Server bereit:
+
+- **Immer erreichbar** unter der festen Service-IP `10.0.0.10` sowie `http://textspeicher.local`
+- **Audiodateien** per Drag-and-Drop hochladen – automatische Konvertierung via ffmpeg, bis zu 4 Dateien gleichzeitig
+- **Wiedergabe** per HTTP-Request (Integration in externe Systeme) oder physischem GPIO-Taster
+- **Pro Sound** wählbar: HTTP-Trigger, GPIO-Trigger oder beides
+- **Kiosk-Modus**: Chromium startet beim Booten automatisch im Vollbild mit der Web-UI
+
+---
+
+## Features
+
+| Feature | Beschreibung |
+|---|---|
+| **Einrichtungsassistent** | 5-Schritte-Wizard für Erstkonfiguration |
+| **Netzwerk** | Statische IP-Konfiguration mit permanenter Service-IP `10.0.0.10` |
+| **Audio** | PulseAudio/PipeWire Quellauswahl, Lautstärke, automatisches Mute während Wiedergabe |
+| **Datei-Upload** | Beliebige Audioformate – ffmpeg konvertiert automatisch zu MP3 (bis zu 4 parallel) |
+| **HTTP-Trigger** | Audiodatei per GET-Request abspielen, kompatibel mit externen Systemen |
+| **GPIO-Taster** | Physische Taster auf GPIO-Pins direkt mit Sounds verknüpfen |
+| **Trigger-Typ** | Pro Sound individuell: HTTP, GPIO oder gesperrt konfigurierbar |
+| **GPIO-Daemon** | Automatisch generiertes Python-Skript als systemd-Dienst |
+| **Status-Dashboard** | Übersicht über alle IPs, Sounds, Trigger-URLs und Systemstatus |
+| **Kiosk-Modus** | Chromium im Vollbild beim Booten (Openbox + LightDM) |
+| **mDNS** | Erreichbar unter `textspeicher.local` im lokalen Netzwerk |
+| **SSH** | OpenSSH vorkonfiguriert für Remote-Zugriff |
+
+---
+
+## Systemanforderungen
+
+- **Hardware**: Radxa ROCK 3A (oder kompatibler ARM-Linux-Einplatinencomputer)
+- **Betriebssystem**: Debian/Ubuntu-basiertes Linux (arm64)
+- **Zugriff**: Root- oder sudo-Berechtigung
+- **Netzwerk**: Aktive Netzwerkverbindung während der Installation
+
+---
+
+## Installation
+
+```bash
+# Repository klonen oder Dateien auf das Gerät übertragen
+git clone https://github.com/dockr69/radxa_app.git
+cd radxa_app
+
+# Installationsskript ausführen
+sudo bash install.sh
+```
+
+Das Installationsskript führt folgende Schritte automatisch aus:
+
+| Schritt | Beschreibung |
+|---|---|
+| Systempakete | ffmpeg, mpg123, openssh-server, avahi-daemon, chromium, openbox, lightdm |
+| App-Deployment | Kopiert App nach `/opt/radxa_audio` |
+| SSH | Aktiviert Passwort-Authentifizierung |
+| Hostname | Setzt Hostname auf `textspeicher`, konfiguriert mDNS |
+| Service-IP | Richtet `10.0.0.10/24` als permanente IP ein (3-fache Absicherung) |
+| systemd | Erstellt und aktiviert alle drei Dienste (Web, GPIO, Kiosk) |
+| Autologin | Konfiguriert LightDM und Openbox-Autostart für Kiosk-Modus |
+
+Nach Abschluss einmalig neu starten:
+
+```bash
+sudo reboot
+```
+
+---
+
+## Zugang nach der Installation
+
+| Zugang | Adresse |
+|---|---|
+| **Web-UI (Service-IP)** | `http://10.0.0.10` |
+| **Web-UI (mDNS)** | `http://textspeicher.local` |
+| **Web-UI (statische IP)** | `http://<konfigurierte-IP>` |
+| **SSH** | `ssh pi@10.0.0.10` |
+
+---
+
+## Einrichtungsassistent
+
+Beim ersten Aufruf der Web-UI startet automatisch ein **5-Schritte-Assistent**:
+
+```
+Schritt 1 – Willkommen
+  └── Übersicht über den Einrichtungsprozess
+
+Schritt 2 – Netzwerk
+  └── Statische IP, Subnetzmaske, Gateway, DNS konfigurieren
+      (10.0.0.10 wird immer zusätzlich eingetragen)
+
+Schritt 3 – Audio
+  └── PulseAudio-Eingangsquelle wählen, Lautstärke einstellen
+
+Schritt 4 – Sounds
+  └── MP3-Dateien hochladen (Drag & Drop, bis zu 4 parallel)
+      Trigger-Typ je Datei: HTTP oder GPIO festlegen
+
+Schritt 5 – GPIO
+  └── Physische Taster auf GPIO-Pins den Sounddateien zuweisen
+      → GPIO-Daemon wird automatisch generiert und gestartet
+```
+
+Nach Abschluss des Assistenten wechselt die UI automatisch in das **Status-Dashboard**.
+
+---
+
+## Funktionen im Detail
+
+### Netzwerkkonfiguration
+
+- Konfiguriert eine statische IP-Adresse auf dem gewählten Netzwerk-Interface
+- Die Service-IP `10.0.0.10/24` wird **immer zusätzlich** eingerichtet und ist durch das System geschützt
+- **3-fache Absicherung**: `/etc/network/interfaces.d`, `rc.local` und systemd `ExecStartPre` stellen sicher, dass `10.0.0.10` nach jedem Neustart verfügbar ist
+- Validierung von IP-Adresse, Gateway und DNS direkt im Browser
+
+### Audio-Konfiguration
+
+- Erkennt alle verfügbaren PulseAudio/PipeWire-Eingabequellen automatisch
+- Einstellbare Lautstärke (0–100 %)
+- Während der Audiowiedergabe wird die Eingangsquelle automatisch stummgeschaltet und danach wieder aktiviert
+- Mute/Unmute-Steuerung einzelner Quellen per API
+- Testfunktion zum Abspielen einer Testsequenz direkt aus der UI
+
+### Sound-Bibliothek & Uploads
+
+- Unterstützt **alle gängigen Audioformate** – ffmpeg konvertiert automatisch zu MP3
+  - Konvertierungsparameter: 44.100 Hz, Mono, 128 kbps
+- Drag-and-Drop-Upload mit Fortschrittsanzeige pro Datei
+- **Parallele Verarbeitung**: bis zu 4 ffmpeg-Prozesse gleichzeitig via `ThreadPoolExecutor`
+- Thread-sicherer Dateinamen-Konfliktschutz während paralleler Uploads
+- Automatische Dateinamen-Bereinigung (Kleinbuchstaben, Unterstriche, keine Sonderzeichen)
+- Duplikate werden mit `_1`, `_2` etc. durchnummeriert
+- Dateien können umbenannt und gelöscht werden
+- **Trigger-Typ pro Sound** wählbar (HTTP, GPIO oder gesperrt) – jederzeit änderbar
+- Thread-Mutex verhindert gleichzeitige Wiedergabe mehrerer Dateien
+
+### HTTP-Trigger
+
+Audiodateien können per einfachem HTTP GET-Request abgespielt werden – ideal für die Integration in andere Systeme, Automatisierungen oder externe Hardware.
+
+**URL-Format:**
+```
+GET http://10.0.0.10/cgi-bin/index.cgi?webif-pass=<passwort>&spotrequest=<dateiname.mp3>
+```
+
+**Vereinfachtes Format:**
+```
+GET http://10.0.0.10/play/<dateiname.mp3>
+```
+
+- Das `webif-pass`-Passwort ist in den Einstellungen konfigurierbar (Standard: `1`)
+- Sounds mit Trigger-Typ `gpio` lehnen HTTP-Anfragen ab
+- Das Status-Dashboard zeigt fertige Trigger-URLs direkt zum Kopieren an
+
+### GPIO-Taster
+
+Physische Taster können direkt mit Audiodateien verknüpft werden:
+
+**Verfügbare GPIO-Pins:** `4, 17, 18, 22, 23, 24, 25, 27`
+
+- Jedem Sound kann ein GPIO-Pin zugewiesen werden
+- Bei Tastendruck (fallende Flanke) wird die zugewiesene Datei abgespielt
+- 200 ms Entprellzeit (Debounce)
+- Pull-up-Widerstände werden automatisch aktiviert (BCM-Modus)
+- Das System generiert automatisch ein Python-Daemon-Skript (`/usr/local/bin/radxa_gpio.py`)
+- Der Daemon läuft als systemd-Dienst und startet automatisch beim Booten
+- Neue GPIO-Zuweisungen werden sofort übernommen – der Daemon wird neu generiert und neu gestartet
+
+---
+
+## Status-Dashboard
+
+Nach der Einrichtung zeigt die Hauptansicht eine vollständige Übersicht:
+
+- **IP-Karten**: Konfigurierte statische IP und gesperrte Service-IP `10.0.0.10`
+- **Status-Tiles**: Anzahl Sounds, SSH-Status, mDNS, Trigger-Port
+- **Sound-Bibliothek**:
+  - Fertige HTTP-Trigger-URLs zum Kopieren
+  - Zugewiesene GPIO-Pins mit Badge-Anzeige (`🌐 HTTP` / `🔌 GPIO [Pin]`)
+  - Aktionen: Abspielen, Umbenennen, Löschen, Trigger-Typ ändern
+- **Upload-Bereich** für neue Sounds direkt im Dashboard
+
+---
+
+## API-Referenz
+
+### System
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/api/status` | Systemstatus und Konfiguration |
+| GET | `/api/setup/status` | Setup-Fortschritt |
+| POST | `/api/setup/finish` | Setup als abgeschlossen markieren |
+| POST | `/api/setup/reset` | Setup zurücksetzen |
+
+### Netzwerk
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/api/network/interfaces` | Verfügbare Netzwerk-Interfaces |
+| POST | `/api/network/validate` | IP-Konfiguration validieren |
+| POST | `/api/network/apply` | IP-Konfiguration anwenden |
+| POST | `/api/network/ping` | Verbindungstest |
+
+### Audio
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/api/audio/sources` | PulseAudio-Quellen auflisten |
+| POST | `/api/audio/save` | Audio-Konfiguration speichern |
+| POST | `/api/audio/mute` | Quelle stummschalten / Stummschaltung aufheben |
+| POST | `/api/audio/test` | Test-Audio abspielen |
+
+### Dateiverwaltung
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/api/mp3s` | Alle MP3s mit Trigger-Konfiguration auflisten |
+| POST | `/api/upload` | Dateien hochladen & parallel konvertieren |
+| POST | `/api/mp3s/play` | MP3 abspielen |
+| POST | `/api/mp3s/delete` | MP3 löschen |
+| POST | `/api/mp3s/rename` | MP3 umbenennen |
+| POST | `/api/mp3s/trigger` | Trigger-Typ und GPIO-Pin pro Sound setzen |
+
+### GPIO & Trigger
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| POST | `/api/gpio/save` | GPIO-Zuweisungen speichern & Daemon neu generieren |
+| POST | `/api/trigger/config` | Webif-Passwort setzen |
+
+### Wiedergabe (extern)
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/cgi-bin/index.cgi` | Trigger via `?webif-pass=X&spotrequest=Y` |
+| GET | `/play/<dateiname>` | Direkter Wiedergabe-Endpunkt |
+
+---
+
+## Systemdienste
+
+Nach der Installation laufen drei systemd-Dienste:
+
+| Dienst | Beschreibung | Autostart |
+|---|---|---|
+| `radxa-audio-web` | Flask-Backend auf Port 80 | Ja |
+| `radxa-audio-gpio` | GPIO-Taster-Daemon | Ja (nach Konfiguration) |
+| `radxa-kiosk` | Chromium-Kiosk-Modus | Ja |
+
+```bash
+# Status prüfen
+systemctl status radxa-audio-web
+systemctl status radxa-audio-gpio
+systemctl status radxa-kiosk
+
+# Dienst neu starten
+sudo systemctl restart radxa-audio-web
+
+# Logs ansehen
+journalctl -u radxa-audio-web -f
+```
+
+---
+
+## Technische Details
+
+### Konfigurationsdatei
+
+Alle Einstellungen werden unter `/etc/radxa_audio/config.json` gespeichert:
+
+```json
+{
+  "network": {
+    "interface": "eth0",
+    "ip": "192.168.1.100",
+    "mask": "255.255.255.0",
+    "gateway": "192.168.1.1",
+    "dns": "8.8.8.8"
+  },
+  "audio": {
+    "source": "@DEFAULT_SOURCE@",
+    "volume": 80
+  },
+  "trigger": {
+    "webif_pass": "1"
+  },
+  "sounds": {
+    "jingle": {
+      "trigger_type": "http",
+      "gpio_pin": null
+    },
+    "ansage": {
+      "trigger_type": "gpio",
+      "gpio_pin": 17
+    }
+  }
+}
+```
+
+### Verzeichnisstruktur auf dem Gerät
+
+```
+/opt/radxa_audio/             → App-Verzeichnis
+/etc/radxa_audio/             → Konfiguration & Sounds
+  ├── config.json             → Hauptkonfiguration
+  ├── .setup_done             → Setup-Abschluss-Marker
+  └── sounds/                 → MP3-Dateien
+/usr/local/bin/
+  └── radxa_gpio.py           → Automatisch generierter GPIO-Daemon
+```
+
+### Audio-Pipeline
+
+```
+Upload (beliebiges Format)
+    └── ffmpeg → MP3 (44.1 kHz, Mono, 128 kbps)
+    [bis zu 4 gleichzeitig via ThreadPoolExecutor]
+                    └── mpg123 → Wiedergabe
+                                    │
+                    PulseAudio-Quelle wird während Wiedergabe
+                    automatisch stummgeschaltet
+```
+
+### GPIO-Daemon (automatisch generiert)
+
+```python
+# /usr/local/bin/radxa_gpio.py (auto-generiert)
+# BCM-Modus, Pull-up, 200ms Debounce
+# Wird bei jeder Änderung der GPIO-Konfiguration neu erstellt
+# Läuft als systemd-Dienst radxa-audio-gpio
+```
+
+### Sicherheitsmechanismen
+
+- `threading.Lock` verhindert gleichzeitige Audiowiedergabe
+- Thread-sicherer Dateinamen-Konfliktschutz bei parallelen Uploads
+- 20 Sekunden Standard-Timeout für Subprozesse (90 s für ffmpeg)
+- Setup-Marker verhindert versehentliches Zurücksetzen
+- Service-IP durch 3-fache systemd/OS-Absicherung immer verfügbar
+
+---
+
+## Projektstruktur
+
+```
+radxa_app/
+├── app.py                  # Flask-Backend (REST API, Wiedergabe, GPIO-Generierung)
+├── install.sh              # Vollautomatisches Installationsskript
+├── requirements.txt        # Python-Abhängigkeiten
+├── templates/
+│   └── index.html         # Single-Page-App (Einrichtungsassistent + Dashboard)
+├── sounds/                 # Lokales Sounds-Verzeichnis
+└── static/                 # Statische Assets
+```
+
+---
+
+## Abhängigkeiten
+
+### Python
+```
+flask>=2.3
+```
+
+### System (werden durch `install.sh` installiert)
+
+| Paket | Verwendung |
+|---|---|
+| `ffmpeg` | Audioformat-Konvertierung (parallel, bis zu 4 gleichzeitig) |
+| `mpg123` | MP3-Wiedergabe |
+| `openssh-server` | SSH-Zugriff |
+| `avahi-daemon` | mDNS (`textspeicher.local`) |
+| `chromium-browser` | Kiosk-Modus |
+| `openbox` | Leichtgewichtige Desktop-Umgebung |
+| `lightdm` | Display Manager mit Autologin |
+| `python3-flask` | Web-Framework |
+| `RPi.GPIO` | GPIO-Steuerung (für generierten Daemon) |
+
+---
+
+## Autor
+
+Entwickelt von **Fabian** für den internen Einsatz auf Radxa ROCK 3A Hardware.
+
+---
+
+*Dieses Projekt ist privat und nicht für die öffentliche Nutzung bestimmt.*

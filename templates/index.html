@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radxa · Audio Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0c10;--s1:#0f1218;--s2:#161b24;--s3:#1d2433;
+  --border:#232b3a;--border2:#2e3a50;
+  --acc:#00d4ff;--acc-dim:rgba(0,212,255,.1);--acc-glow:rgba(0,212,255,.2);
+  --green:#00e676;--green-dim:rgba(0,230,118,.1);
+  --warn:#ffab40;--warn-dim:rgba(255,171,64,.1);
+  --red:#ff5252;--red-dim:rgba(255,82,82,.1);
+  --purple:#b39dff;--purple-dim:rgba(179,157,255,.1);
+  --text:#e8edf5;--t2:#8899b0;--t3:#4a5568;
+  --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;
+  --r:8px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.6;overflow:hidden}
+
+/* ── Shared Layout ── */
+.shell{display:flex;height:100vh}
+.sidebar{width:250px;min-width:250px;background:var(--s1);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.topbar{height:52px;background:var(--s1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;flex-shrink:0}
+.content{flex:1;overflow-y:auto;padding:28px 32px}
+
+/* ── Topbar ── */
+.tlogo{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--acc);letter-spacing:.08em;display:flex;align-items:center;gap:9px}
+.tpulse{width:7px;height:7px;border-radius:50%;background:var(--acc);box-shadow:0 0 8px var(--acc-glow);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.tsep{flex:1}
+.tchip{font-family:var(--mono);font-size:11px;padding:4px 11px;border-radius:4px;border:1px solid var(--border2);color:var(--t2);background:var(--s2);white-space:nowrap}
+.tchip b{color:var(--green)}
+.tbtn{background:none;border:1px solid var(--border2);border-radius:6px;color:var(--t2);padding:5px 10px;cursor:pointer;font-size:16px;line-height:1;transition:all .15s}
+.tbtn:hover{border-color:var(--t2);color:var(--text)}
+
+/* ── Sidebar ── */
+.sb-head{padding:18px 18px 6px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.15em;color:var(--t3);text-transform:uppercase}
+.step-item{display:flex;align-items:center;padding:10px 18px;gap:11px;cursor:pointer;border-left:3px solid transparent;transition:all .15s}
+.step-item:hover .step-label{color:var(--text)}
+.step-item.active{background:var(--s2);border-left-color:var(--acc)}
+.step-item.active .step-label{color:var(--text)}
+.step-item.done .step-num{background:var(--green-dim);color:var(--green);border-color:var(--green)}
+.step-item.done .step-label{color:var(--t2)}
+.step-num{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--border2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--t3);flex-shrink:0;transition:all .2s}
+.step-item.active .step-num{border-color:var(--acc);color:var(--acc);background:var(--acc-dim)}
+.step-label{font-size:13px;font-weight:500;color:var(--t2);transition:color .15s}
+.step-desc{font-size:11px;color:var(--t3)}
+.sb-spacer{flex:1}
+.sb-bottom{padding:14px 18px;border-top:1px solid var(--border)}
+.sb-bottom-row{font-family:var(--mono);font-size:10px;color:var(--t3);padding:2px 0;display:flex;gap:6px}
+.sb-bottom-row b{color:var(--acc)}
+.sb-lock{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:8px;padding:5px 9px;background:var(--s2);border-radius:5px;border:1px solid var(--border)}
+.sb-lock span{color:var(--warn)}
+
+/* ── Panes ── */
+.pane{display:none;animation:fi .2s ease}
+.pane.active{display:block}
+@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── Cards ── */
+.card{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:20px 24px;margin-bottom:14px}
+.card-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t2);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+
+/* ── Form ── */
+.frow{display:grid;grid-template-columns:150px 1fr;align-items:start;gap:8px 16px;margin-bottom:8px}
+.flabel{font-size:13px;color:var(--t2);font-weight:500;padding-top:10px}
+.fwrap{display:flex;flex-direction:column;gap:3px}
+input[type=text],select{width:100%;background:var(--s3);border:1.5px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;padding:8px 13px;outline:none;transition:border-color .15s,box-shadow .15s}
+input[type=text]::placeholder{color:var(--t3)}
+input[type=text]:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-dim)}
+input.valid{border-color:var(--green)!important}
+input.invalid{border-color:var(--red)!important;box-shadow:0 0 0 3px var(--red-dim)!important}
+select option{background:var(--s2)}
+.fhint{font-family:var(--mono);font-size:11px;color:var(--t3)}
+input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border:none;border-radius:6px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--acc);color:#03111a}
+.btn-primary:hover:not(:disabled){background:#33ddff;box-shadow:0 0 14px var(--acc-glow)}
+.btn-green{background:var(--green);color:#021a0a}
+.btn-green:hover:not(:disabled){background:#33ff8e}
+.btn-ghost{background:var(--s3);border:1.5px solid var(--border2);color:var(--t2)}
+.btn-ghost:hover:not(:disabled){border-color:var(--t2);color:var(--text)}
+.btn-danger{background:var(--red);color:#1a0303}
+.btn-danger:hover:not(:disabled){background:#ff7070}
+.btn-sm{padding:5px 12px;font-size:12px}
+.brow{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
+
+/* ── Status pill ── */
+.spill{display:none;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;padding:8px 13px;border-radius:6px;margin-top:10px}
+.spill.show{display:flex}
+.spill.ok  {background:var(--green-dim);color:var(--green);border:1px solid rgba(0,230,118,.2)}
+.spill.err {background:var(--red-dim);color:var(--red);border:1px solid rgba(255,82,82,.2)}
+.spill.warn{background:var(--warn-dim);color:var(--warn);border:1px solid rgba(255,171,64,.2)}
+.spill.info{background:var(--acc-dim);color:var(--acc);border:1px solid rgba(0,212,255,.2)}
+
+/* ── Step-Nav ── */
+.step-nav{display:flex;justify-content:space-between;align-items:center;margin-top:24px;padding-top:18px;border-top:1px solid var(--border)}
+.step-prog{font-family:var(--mono);font-size:11px;color:var(--t3)}
+
+/* ── MP3 List ── */
+.mp3-list{display:flex;flex-direction:column;gap:5px}
+.mp3-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--s3);border:1px solid var(--border);border-radius:6px;transition:border-color .15s}
+.mp3-row:hover{border-color:var(--border2)}
+.mp3-row.playing{border-color:var(--acc)}
+.mp3-icon{font-size:16px;color:var(--t3)}
+.mp3-row.playing .mp3-icon{color:var(--acc)}
+.mp3-info{flex:1;min-width:0}
+.mp3-name{font-family:var(--mono);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp3-meta{font-size:11px;color:var(--t3);font-family:var(--mono);margin-top:1px}
+.mp3-size{font-family:var(--mono);font-size:11px;color:var(--t3);min-width:52px;text-align:right}
+.mp3-actions{display:flex;gap:5px;margin-left:6px}
+/* Trigger-type badge on mp3 row */
+.ttype-badge{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:3px;white-space:nowrap}
+.ttype-http  {background:var(--acc-dim);color:var(--acc);border:1px solid rgba(0,212,255,.2)}
+.ttype-gpio  {background:var(--purple-dim);color:var(--purple);border:1px solid rgba(179,157,255,.2)}
+
+/* ── Dropzone ── */
+.dropzone{border:2px dashed var(--border2);border-radius:var(--r);padding:32px;text-align:center;cursor:pointer;transition:all .2s;background:var(--s3)}
+.dropzone:hover,.dropzone.over{border-color:var(--acc);background:var(--acc-dim)}
+.dz-icon{font-size:36px;margin-bottom:8px}
+.dz-text{font-size:13px;color:var(--t2)}
+.dz-sub{font-family:var(--mono);font-size:11px;color:var(--t3);margin-top:4px}
+#file-input{display:none}
+.up-list{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.up-row{padding:10px 14px;background:var(--s3);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:12px;transition:border-color .3s}
+.up-row.done-ok {border-color:rgba(0,230,118,.35)}
+.up-row.done-err{border-color:rgba(255,82,82,.35)}
+.up-row-top{display:flex;align-items:center;gap:8px}
+.up-name{flex:1;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up-status{font-size:11px;white-space:nowrap}
+.up-status.converting{color:var(--acc)}
+.up-status.ok {color:var(--green)}
+.up-status.err{color:var(--red)}
+.up-bar-wrap{margin-top:6px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.up-bar{height:100%;width:0%;border-radius:2px;background:var(--acc);animation:bar-pulse 1.2s ease-in-out infinite}
+.up-bar.done{background:var(--green);animation:none;width:100%!important}
+.up-bar.err {background:var(--red);animation:none}
+@keyframes bar-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.up-detail{font-size:11px;color:var(--t3);margin-top:4px}
+
+/* ── GPIO grid ── */
+.gpio-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:7px}
+.gpio-row{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--s3);border:1px solid var(--border);border-radius:6px}
+.gpio-pin{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--acc);min-width:68px}
+.gpio-row select{flex:1;font-size:12px;padding:5px 9px}
+
+/* ── Locked chip ── */
+.locked-chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;padding:7px 13px;background:var(--warn-dim);border:1px solid rgba(255,171,64,.25);border-radius:6px;color:var(--warn)}
+
+/* ── Modal ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(3px)}
+.modal-bg.show{display:flex}
+.modal{background:var(--s2);border:1px solid var(--border2);border-radius:10px;padding:26px;width:400px}
+.modal h3{font-family:var(--mono);font-size:14px;margin-bottom:16px}
+
+/* ── Trigger-type selector ── */
+.tsel{display:flex;gap:6px;margin-bottom:10px}
+.tsel-btn{flex:1;padding:8px;border:1.5px solid var(--border2);border-radius:6px;background:var(--s3);color:var(--t2);font-family:var(--mono);font-size:12px;cursor:pointer;text-align:center;transition:all .15s}
+.tsel-btn.active-http{border-color:var(--acc);background:var(--acc-dim);color:var(--acc)}
+.tsel-btn.active-gpio{border-color:var(--purple);background:var(--purple-dim);color:var(--purple)}
+
+/* ══════════════════════════════════════════════
+   STATUS DASHBOARD
+══════════════════════════════════════════════ */
+#view-status{display:none;height:100vh;flex-direction:column;background:var(--bg)}
+#view-status.active{display:flex}
+.ds-topbar{height:52px;background:var(--s1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;flex-shrink:0}
+.ds-content{flex:1;overflow-y:auto;padding:28px 32px}
+
+/* IP Cards */
+.ip-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+.ip-card{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:20px 24px;position:relative;overflow:hidden}
+.ip-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.ip-card.static::before{background:var(--acc)}
+.ip-card.service::before{background:var(--warn)}
+.ip-card-label{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px}
+.ip-card.static .ip-card-label{color:var(--acc)}
+.ip-card.service .ip-card-label{color:var(--warn)}
+.ip-card-ip{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--text);margin-bottom:6px;letter-spacing:-.01em}
+.ip-card-sub{font-size:12px;color:var(--t2)}
+.ip-card-badge{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:4px;margin-top:10px}
+.ip-card.static .ip-card-badge{background:var(--acc-dim);color:var(--acc);border:1px solid rgba(0,212,255,.2)}
+.ip-card.service .ip-card-badge{background:var(--warn-dim);color:var(--warn);border:1px solid rgba(255,171,64,.2)}
+.ip-card-lock{position:absolute;top:16px;right:16px;font-size:16px;opacity:.3}
+.ip-card.service .ip-card-lock{opacity:.5;color:var(--warn)}
+
+/* Status row */
+.ds-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:20px}
+.ds-tile{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:12px}
+.ds-tile-icon{font-size:22px}
+.ds-tile-label{font-size:11px;color:var(--t3)}
+.ds-tile-val{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--text)}
+.ds-tile-val.green{color:var(--green)}
+.ds-tile-val.warn{color:var(--warn)}
+.ds-tile-val.red{color:var(--red)}
+
+/* Sound table */
+.sound-table{width:100%;border-collapse:collapse}
+.sound-table th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);padding:8px 14px;text-align:left;border-bottom:1px solid var(--border)}
+.sound-table td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+.sound-table tr:last-child td{border-bottom:none}
+.sound-table tr:hover td{background:var(--s3)}
+.sound-table .mono{font-family:var(--mono);font-size:12px;color:var(--t2)}
+.sound-table .url{font-family:var(--mono);font-size:11px;color:var(--acc2,var(--acc));background:var(--s3);padding:3px 8px;border-radius:4px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+
+/* ── Dashboard Tabs ── */
+.ds-tab{background:none;border:none;padding:7px 16px;font-family:var(--sans);font-size:12px;font-weight:500;color:var(--t2);cursor:pointer;transition:all .15s;border-right:1px solid var(--border2)}
+.ds-tab:last-child{border-right:none}
+.ds-tab:hover{color:var(--text);background:var(--s3)}
+.ds-tab.active{background:var(--s3);color:var(--acc);font-weight:600}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:var(--s1)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     STATUS DASHBOARD (nach Setup)
+══════════════════════════════════════════ -->
+<div id="view-status">
+  <div class="ds-topbar">
+    <div class="tlogo"><div class="tpulse"></div>RADXA · AUDIO</div>
+    <div class="tsep"></div>
+    <div class="tchip" id="ds-chip-static">IP: <b id="ds-static-ip-chip">–</b></div>
+    <div class="tchip">Service: <b>10.0.0.10</b></div>
+    <div class="tchip" id="ds-ssh-chip" style="display:none">SSH <b id="ds-ssh-val">–</b></div>
+    <button class="tbtn" onclick="openWizard()" title="Einstellungen">⚙</button>
+  </div>
+  <div class="ds-content">
+
+    <!-- Beide IPs prominent -->
+    <div class="ip-grid">
+      <div class="ip-card static">
+        <div class="ip-card-label">🌐 Statische IP</div>
+        <div class="ip-card-ip" id="ds-static-ip">–.–.–.–</div>
+        <div class="ip-card-sub" id="ds-static-iface">Interface: –</div>
+        <div class="ip-card-badge">✓ Konfiguriert</div>
+      </div>
+      <div class="ip-card service">
+        <div class="ip-card-lock">🔒</div>
+        <div class="ip-card-label">🔒 Service-IP (fest)</div>
+        <div class="ip-card-ip">10.0.0.10</div>
+        <div class="ip-card-sub">textspeicher.local · immer aktiv</div>
+        <div class="ip-card-badge">⚡ Permanent gesperrt</div>
+      </div>
+    </div>
+
+    <!-- Status-Kacheln -->
+    <div class="ds-grid">
+      <div class="ds-tile">
+        <div class="ds-tile-icon">🎵</div>
+        <div>
+          <div class="ds-tile-label">Sounds</div>
+          <div class="ds-tile-val" id="ds-mp3-count">–</div>
+        </div>
+      </div>
+      <div class="ds-tile">
+        <div class="ds-tile-icon">🖥</div>
+        <div>
+          <div class="ds-tile-label">SSH</div>
+          <div class="ds-tile-val" id="ds-ssh-status">–</div>
+        </div>
+      </div>
+      <div class="ds-tile">
+        <div class="ds-tile-icon">🌐</div>
+        <div>
+          <div class="ds-tile-label">mDNS</div>
+          <div class="ds-tile-val green" style="font-size:12px">textspeicher.local</div>
+        </div>
+      </div>
+      <div class="ds-tile">
+        <div class="ds-tile-icon">⚡</div>
+        <div>
+          <div class="ds-tile-label">Trigger-Port</div>
+          <div class="ds-tile-val green">aktiv · Port 80</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sound-Bibliothek + Upload-Tabs -->
+    <div class="card">
+      <div class="card-title">
+        <div style="display:flex;gap:0;border:1px solid var(--border2);border-radius:6px;overflow:hidden;margin-right:auto">
+          <button class="ds-tab active" id="ds-tab-sounds" onclick="dsSwitchTab('sounds')">🎵 Sounds</button>
+          <button class="ds-tab" id="ds-tab-upload" onclick="dsSwitchTab('upload')">📤 Upload & Konverter</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadDashboard()">↺</button>
+      </div>
+
+      <!-- Tab: Sounds -->
+      <div id="ds-pane-sounds">
+        <div id="ds-sound-body">
+          <div style="text-align:center;padding:24px;color:var(--t3);font-size:13px">Lade…</div>
+        </div>
+      </div>
+
+      <!-- Tab: Upload -->
+      <div id="ds-pane-upload" style="display:none">
+        <div class="dropzone" id="ds-dropzone" onclick="document.getElementById('ds-file-input').click()">
+          <div class="dz-icon">🎧</div>
+          <div class="dz-text">Dateien hier ablegen oder klicken</div>
+          <div class="dz-sub">MP3 · WAV · OGG · FLAC · AAC · M4A · WMA → MP3 128k Mono · parallel via ffmpeg</div>
+        </div>
+        <input type="file" id="ds-file-input" multiple accept="audio/*,.mp3,.wav,.ogg,.flac,.aac,.m4a,.wma">
+        <div class="up-list" id="ds-up-list"></div>
+        <div class="spill" id="ds-upload-status"></div>
+      </div>
+    </div>
+
+    <!-- SSH Info -->
+    <div class="card" style="padding:16px 22px">
+      <div class="card-title">🖥 SSH-Zugang</div>
+      <div style="font-family:var(--mono);font-size:13px;color:var(--t2);line-height:2.4">
+        <span id="ds-ssh-cmd" style="color:var(--green)">ssh pi@10.0.0.10</span>
+        &nbsp;·&nbsp;
+        <span style="color:var(--t3)">oder</span>
+        &nbsp;
+        <span id="ds-ssh-cmd2" style="color:var(--green)">ssh pi@textspeicher.local</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     WIZARD
+══════════════════════════════════════════ -->
+<div id="view-wizard" class="shell">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sb-head">Setup-Wizard</div>
+    <div id="step-items"></div>
+    <div class="sb-spacer"></div>
+    <div class="sb-bottom">
+      <div class="sb-bottom-row">Service-IP: <b>10.0.0.10</b></div>
+      <div class="sb-bottom-row">mDNS: <b>textspeicher.local</b></div>
+      <div class="sb-lock">🔒 <span>10.0.0.10 ist permanent</span></div>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="tlogo"><div class="tpulse"></div>RADXA · AUDIO · WIZARD</div>
+      <div class="tsep"></div>
+      <div class="tchip">Service-IP: <b>10.0.0.10</b></div>
+      <button class="tbtn" id="btn-to-dashboard" onclick="openDashboard()" style="display:none" title="Zum Status">←</button>
+    </header>
+
+    <div class="content" id="wizard-content">
+
+      <!-- STEP 0: Willkommen -->
+      <div class="pane active" id="pane-0">
+        <div style="margin-bottom:24px">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text)">Willkommen beim <span style="color:var(--acc)">Setup</span></div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Konfiguriert das Radxa ROCK 3A Audio-System Schritt für Schritt.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">📋 Schritte</div>
+          <div style="display:flex;flex-direction:column;gap:9px;font-size:13px;color:var(--t2)">
+            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">01</span><div><b style="color:var(--text)">Netzwerk</b> — Statische IP · Service-IP 10.0.0.10 wird immer zusätzlich gesetzt</div></div>
+            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">02</span><div><b style="color:var(--text)">Audio</b> — Line-In Quelle & Passthrough</div></div>
+            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">03</span><div><b style="color:var(--text)">Sounds</b> — MP3 hochladen & konvertieren</div></div>
+            <div style="display:flex;gap:12px"><span style="color:var(--acc);font-family:var(--mono);min-width:26px">04</span><div><b style="color:var(--text)">GPIO</b> — Taster zuweisen (optional)</div></div>
+          </div>
+        </div>
+        <div class="card" style="background:var(--warn-dim);border-color:rgba(255,171,64,.2)">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="font-size:20px">🔒</span>
+            <div>
+              <div style="font-weight:600;color:var(--warn);margin-bottom:3px">Service-IP 10.0.0.10 ist permanent gesperrt</div>
+              <div style="font-size:13px;color:var(--t2)">Immer aktiv, unabhängig vom Netzwerk. Laptop: Netzwerkkarte auf <b style="color:var(--text)">10.0.0.1</b> / 255.255.255.0.</div>
+            </div>
+          </div>
+        </div>
+        <div class="step-nav">
+          <div class="step-prog">Schritt 1 von 5</div>
+          <button class="btn btn-primary" onclick="goStep(1)">Los geht's →</button>
+        </div>
+      </div>
+
+      <!-- STEP 1: Netzwerk -->
+      <div class="pane" id="pane-1">
+        <div style="margin-bottom:24px">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700">01 · <span style="color:var(--acc)">Netzwerk</span></div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Statische IP für Laptop-Zugriff — zusätzlich zur festen Service-IP 10.0.0.10</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🌐 IP-Konfiguration</div>
+
+          <!-- Beide IPs nebeneinander als Übersicht -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
+            <div style="background:var(--s3);border:1px solid var(--border2);border-radius:6px;padding:12px 14px">
+              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin-bottom:6px">Statische IP (du wählst)</div>
+              <div style="font-family:var(--mono);font-size:18px;color:var(--text)" id="net-preview-static">–.–.–.–</div>
+              <div style="font-size:11px;color:var(--t3);margin-top:2px">Netzwerkzugang Laptop</div>
+            </div>
+            <div style="background:var(--warn-dim);border:1px solid rgba(255,171,64,.2);border-radius:6px;padding:12px 14px">
+              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);margin-bottom:6px">🔒 Service-IP (fest)</div>
+              <div style="font-family:var(--mono);font-size:18px;color:var(--text)">10.0.0.10</div>
+              <div style="font-size:11px;color:var(--t3);margin-top:2px">Immer aktiv · nicht änderbar</div>
+            </div>
+          </div>
+
+          <div class="frow">
+            <div class="flabel">Interface</div>
+            <div class="fwrap"><select id="net-iface"></select></div>
+          </div>
+          <div class="frow">
+            <div class="flabel">Statische IP *</div>
+            <div class="fwrap">
+              <input type="text" id="net-ip" placeholder="z.B. 192.168.1.100" oninput="onNetInput()" autocomplete="off">
+              <div class="fhint" id="net-ip-hint">Wird zusätzlich zu 10.0.0.10 gesetzt</div>
+            </div>
+          </div>
+          <div class="frow">
+            <div class="flabel">Subnetzmaske</div>
+            <div class="fwrap"><input type="text" id="net-mask" value="255.255.255.0" oninput="onNetInput()" autocomplete="off"></div>
+          </div>
+          <div class="frow">
+            <div class="flabel">Gateway *</div>
+            <div class="fwrap">
+              <input type="text" id="net-gw" placeholder="z.B. 192.168.1.1" oninput="onNetInput()" autocomplete="off">
+            </div>
+          </div>
+          <div class="frow">
+            <div class="flabel">DNS</div>
+            <div class="fwrap"><input type="text" id="net-dns" value="8.8.8.8" oninput="onNetInput()" autocomplete="off"></div>
+          </div>
+
+          <div class="brow">
+            <button class="btn btn-primary" id="btn-net-apply" onclick="applyNetwork()" disabled>✓ Anwenden</button>
+            <button class="btn btn-ghost btn-sm" onclick="pingTest()">⚡ Ping</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadIfaces()">↺ Interfaces</button>
+          </div>
+          <div class="spill" id="net-status"></div>
+        </div>
+
+        <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
+          <span style="color:var(--t3)">Laptop:</span> IP <b style="color:var(--text)">10.0.0.1</b> · Maske 255.255.255.0 · kein Gateway nötig<br>
+          <span style="color:var(--t3)">mDNS:</span> <b style="color:var(--acc)">http://textspeicher.local</b><br>
+          <span style="color:var(--t3)">SSH:</span> <b style="color:var(--green)">ssh pi@10.0.0.10</b>
+        </div>
+
+        <div class="step-nav">
+          <button class="btn btn-ghost" onclick="goStep(0)">← Zurück</button>
+          <div class="step-prog">Schritt 2 von 5</div>
+          <button class="btn btn-primary" id="btn-net-next" onclick="goStep(2)" disabled>Weiter →</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: Audio -->
+      <div class="pane" id="pane-2">
+        <div style="margin-bottom:24px">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700">02 · <span style="color:var(--acc)">Audio</span></div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Line-In Quelle & Passthrough-Verhalten</div>
+        </div>
+        <div class="card">
+          <div class="card-title">🎚 Line-In</div>
+          <div class="frow">
+            <div class="flabel">Quelle</div>
+            <div class="fwrap">
+              <div style="display:flex;gap:7px">
+                <select id="audio-src" style="flex:1"></select>
+                <button class="btn btn-ghost btn-sm" onclick="detectSources()">↺</button>
+              </div>
+              <div class="fhint">PulseAudio/PipeWire Eingangsquelle</div>
+            </div>
+          </div>
+          <div class="frow">
+            <div class="flabel">Lautstärke</div>
+            <div class="fwrap" style="padding-top:5px">
+              <div style="display:flex;align-items:center;gap:12px">
+                <input type="range" id="audio-vol" min="0" max="100" value="80"
+                       oninput="document.getElementById('vol-val').textContent=this.value+'%'" style="flex:1">
+                <span id="vol-val" style="font-family:var(--mono);font-size:12px;min-width:36px;color:var(--t2)">80%</span>
+              </div>
+            </div>
+          </div>
+          <div class="brow">
+            <button class="btn btn-green btn-sm" onclick="saveAudio()">✓ Speichern</button>
+            <button class="btn btn-danger btn-sm" onclick="doMute(true)">🔇 Mute</button>
+            <button class="btn btn-ghost btn-sm" onclick="doMute(false)">🔈 Unmute</button>
+            <button class="btn btn-ghost btn-sm" onclick="testAudio()">▶ Test</button>
+          </div>
+          <div class="spill" id="audio-status"></div>
+        </div>
+        <div class="card" style="padding:14px 18px;font-size:13px;color:var(--t2)">
+          Line-In → Line-Out läuft <b style="color:var(--text)">permanent</b>.
+          Beim Trigger: Line-In kurz stumm → Ton → Line-In wieder aktiv.
+        </div>
+        <div class="step-nav">
+          <button class="btn btn-ghost" onclick="goStep(1)">← Zurück</button>
+          <div class="step-prog">Schritt 3 von 5</div>
+          <button class="btn btn-primary" onclick="saveAudioAndNext()">Weiter →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: Sounds + Trigger -->
+      <div class="pane" id="pane-3">
+        <div style="margin-bottom:24px">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700">03 · <span style="color:var(--acc)">Sounds</span></div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">MP3s hochladen & Trigger-Typ pro Sound festlegen: HTTP oder GPIO</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📤 Upload & Konverter
+            <span style="margin-left:auto;font-size:11px;color:var(--t3)">MP3 WAV OGG FLAC AAC M4A → MP3 128k</span>
+          </div>
+          <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+            <div class="dz-icon">🎧</div>
+            <div class="dz-text">Dateien hier ablegen oder klicken</div>
+            <div class="dz-sub">ffmpeg konvertiert automatisch → 44100 Hz · Mono · 128k</div>
+          </div>
+          <input type="file" id="file-input" multiple accept="audio/*,.mp3,.wav,.ogg,.flac,.aac,.m4a,.wma">
+          <div class="up-list" id="up-list"></div>
+          <div class="spill" id="upload-status"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            🎵 Sounds & Trigger-Typ
+            <span id="mp3-count" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--t3)">0 Dateien</span>
+            <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="loadMp3s()">↺</button>
+          </div>
+          <div class="mp3-list" id="mp3-list">
+            <div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Noch keine Sounds</div>
+          </div>
+          <div class="spill" id="sounds-status"></div>
+        </div>
+
+        <div class="step-nav">
+          <button class="btn btn-ghost" onclick="goStep(2)">← Zurück</button>
+          <div class="step-prog">Schritt 4 von 5</div>
+          <button class="btn btn-primary" onclick="goStep(4)">Weiter →</button>
+        </div>
+      </div>
+
+      <!-- STEP 4: GPIO -->
+      <div class="pane" id="pane-4">
+        <div style="margin-bottom:24px">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700">04 · <span style="color:var(--acc)">GPIO</span></div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Taster → Sound · nur Sounds mit Trigger-Typ "GPIO" erscheinen hier</div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔌 Pin-Mapping</div>
+          <div class="gpio-grid" id="gpio-grid"></div>
+          <div class="brow">
+            <button class="btn btn-green" onclick="saveGpio()">✓ Speichern</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadGpio()">↺</button>
+          </div>
+          <div class="spill" id="gpio-status"></div>
+        </div>
+        <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
+          <b style="color:var(--text)">Wiring:</b> Taster zwischen GPIO-Pin und GND<br>
+          <b style="color:var(--text)">Pull-Up:</b> intern (PUD_UP) · <b style="color:var(--text)">Debounce:</b> 200 ms
+        </div>
+        <div class="step-nav">
+          <button class="btn btn-ghost" onclick="goStep(3)">← Zurück</button>
+          <div class="step-prog">Schritt 5 von 5</div>
+          <button class="btn btn-primary" onclick="finishWizard()">✓ Abschließen</button>
+        </div>
+      </div>
+
+    </div><!-- /wizard-content -->
+  </div>
+</div>
+
+<!-- Rename Modal -->
+<div class="modal-bg" id="rename-modal">
+  <div class="modal">
+    <h3>// Umbenennen</h3>
+    <input type="text" id="rename-input" placeholder="neuer_name" autocomplete="off">
+    <input type="hidden" id="rename-old">
+    <div class="brow" style="margin-top:14px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Abbrechen</button>
+      <button class="btn btn-primary btn-sm" onclick="doRename()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Trigger-Typ Modal -->
+<div class="modal-bg" id="trigger-modal">
+  <div class="modal">
+    <h3>// Trigger-Typ: <span id="tmod-name" style="color:var(--acc)"></span></h3>
+    <div style="font-size:13px;color:var(--t2);margin-bottom:14px">Wie wird dieser Sound ausgelöst?</div>
+    <div class="tsel">
+      <div class="tsel-btn active-http" id="tsel-http" onclick="selectTrigger('http')">
+        🌐 HTTP<br><span style="font-size:10px;color:var(--t3)">/cgi-bin/index.cgi</span>
+      </div>
+      <div class="tsel-btn" id="tsel-gpio" onclick="selectTrigger('gpio')">
+        🔌 GPIO<br><span style="font-size:10px;color:var(--t3)">physischer Taster</span>
+      </div>
+    </div>
+    <div id="tmod-gpio-row" style="display:none;margin-top:10px">
+      <div class="fhint" style="margin-bottom:6px">GPIO-Pin zuweisen:</div>
+      <select id="tmod-gpio-pin" style="width:100%"></select>
+    </div>
+    <div class="spill" id="tmod-hint" style="margin-top:10px"></div>
+    <input type="hidden" id="tmod-stem">
+    <div class="brow" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="closeTriggerModal()">Abbrechen</button>
+      <button class="btn btn-primary btn-sm" onclick="saveTriggerType()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SERVICE_IP = "10.0.0.10";
+const GPIO_PINS  = [4,17,18,22,23,24,25,27];
+const STEPS = [
+  {label:"Willkommen", desc:"Übersicht"},
+  {label:"Netzwerk",   desc:"IP-Konfiguration"},
+  {label:"Audio",      desc:"Line-In"},
+  {label:"Sounds",     desc:"MP3 & Trigger"},
+  {label:"GPIO",       desc:"Taster"},
+];
+let curStep = 0, mp3List = [], netOk = false, selectedTriggerType = 'http';
+
+// ── Views ──────────────────────────────────────────────────────────────────────
+function openDashboard() {
+  document.getElementById('view-wizard').style.display  = 'none';
+  document.getElementById('view-status').classList.add('active');
+  loadDashboard();
+}
+function openWizard() {
+  document.getElementById('view-status').classList.remove('active');
+  document.getElementById('view-wizard').style.display = 'flex';
+  document.getElementById('btn-to-dashboard').style.display = 'inline-flex';
+  buildSidebar();
+  loadMp3s();
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  const st = await api('GET', '/api/status');
+
+  // Statische IP
+  const sip = st.static_ip || '–';
+  document.getElementById('ds-static-ip').textContent      = sip;
+  document.getElementById('ds-static-ip-chip').textContent = sip;
+  document.getElementById('ds-static-iface').textContent   = `Interface: ${st.static_iface || '–'} · Gateway: ${st.config?.network?.gateway || '–'}`;
+
+  // SSH
+  const sshEl = document.getElementById('ds-ssh-status');
+  if (st.ssh_active) { sshEl.textContent = 'aktiv'; sshEl.className = 'ds-tile-val green'; }
+  else               { sshEl.textContent = 'inaktiv'; sshEl.className = 'ds-tile-val red'; }
+
+  const sshCmd = `ssh pi@${sip !== '–' ? sip : SERVICE_IP}`;
+  document.getElementById('ds-ssh-cmd').textContent  = `ssh pi@${sip}`;
+  document.getElementById('ds-ssh-cmd2').textContent = `ssh pi@textspeicher.local`;
+
+  // MP3-Count
+  const mp3s = await api('GET', '/api/mp3s');
+  document.getElementById('ds-mp3-count').textContent = `${mp3s.length} Datei${mp3s.length !== 1 ? 'en' : ''}`;
+
+  // Sound-Tabelle
+  renderSoundTable(mp3s, sip);
+}
+
+function renderSoundTable(mp3s, staticIp) {
+  const body = document.getElementById('ds-sound-body');
+  if (!mp3s.length) {
+    body.innerHTML = '<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Keine Sounds — im Wizard hinzufügen</div>';
+    return;
+  }
+  const httpBase = staticIp && staticIp !== '–' ? `http://${staticIp}` : `http://${SERVICE_IP}`;
+  const rows = mp3s.map(f => {
+    const isGpio = f.trigger_type === 'gpio';
+    const triggerBadge = isGpio
+      ? `<span class="ttype-badge ttype-gpio">🔌 GPIO ${f.gpio_pin ?? '–'}</span>`
+      : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
+    const urlCell = isGpio
+      ? `<span style="color:var(--t3);font-family:var(--mono);font-size:12px">GPIO ${f.gpio_pin ?? '–'} → physischer Taster</span>`
+      : `<span class="url">${httpBase}/cgi-bin/index.cgi?webif-pass=1&amp;spotrequest=${encodeURIComponent(f.name)}</span>`;
+    return `<tr>
+      <td><span style="font-family:var(--mono);font-size:13px">${esc(f.name)}</span></td>
+      <td>${triggerBadge}</td>
+      <td>${urlCell}</td>
+      <td style="color:var(--t3);font-family:var(--mono);font-size:11px">${f.size_kb} KB</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<table class="sound-table">
+    <thead><tr>
+      <th>Datei</th><th>Trigger</th><th>Endpunkt / Zuweisung</th><th>Größe</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function buildSidebar() {
+  document.getElementById('step-items').innerHTML = STEPS.map((s,i) => `
+    <div class="step-item${i===curStep?' active':i<curStep?' done':''}" onclick="tryGoStep(${i})">
+      <div class="step-num">${i<curStep?'✓':i===curStep?'●':(i+1)}</div>
+      <div>
+        <div class="step-label">${s.label}</div>
+        <div class="step-desc">${s.desc}</div>
+      </div>
+    </div>`).join('');
+}
+
+function tryGoStep(i) { if (i <= curStep) goStep(i); }
+function goStep(i) {
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+  document.getElementById(`pane-${i}`).classList.add('active');
+  curStep = i; buildSidebar();
+  if (i === 3) loadMp3s();
+  if (i === 4) loadGpio();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+async function api(method, url, body) {
+  const opts = {method, headers:{'Content-Type':'application/json'}};
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  return (await fetch(url, opts)).json();
+}
+function pill(id, msg, type='info') {
+  const el = document.getElementById(id);
+  el.className = `spill show ${type}`; el.innerHTML = msg;
+  if (type==='ok') setTimeout(()=>el.classList.remove('show'), 5000);
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+const ipRe = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+// ── Netzwerk ──────────────────────────────────────────────────────────────────
+async function loadIfaces() {
+  const list = await api('GET','/api/network/interfaces');
+  const sel  = document.getElementById('net-iface');
+  sel.innerHTML = list.map(i=>`<option value="${i}">${i}</option>`).join('');
+}
+function onNetInput() {
+  const ip = document.getElementById('net-ip').value.trim();
+  const gw = document.getElementById('net-gw').value.trim();
+  document.getElementById('net-preview-static').textContent = ipRe.test(ip) ? ip : '–.–.–.–';
+  const ok = ipRe.test(ip) && ipRe.test(gw) && ip !== SERVICE_IP;
+  document.getElementById('btn-net-apply').disabled = !ok;
+  document.getElementById('net-ip').className = ip ? (ipRe.test(ip) && ip !== SERVICE_IP ? 'valid' : 'invalid') : '';
+  document.getElementById('net-gw').className = gw ? (ipRe.test(gw) ? 'valid' : 'invalid') : '';
+}
+async function applyNetwork() {
+  const data = {
+    interface: document.getElementById('net-iface').value,
+    ip:   document.getElementById('net-ip').value.trim(),
+    mask: document.getElementById('net-mask').value.trim(),
+    gateway: document.getElementById('net-gw').value.trim(),
+    dns:  document.getElementById('net-dns').value.trim(),
+  };
+  const v = await api('POST','/api/network/validate', data);
+  if (!v.ok) { pill('net-status','✗ '+v.errors.join(' · '),'err'); return; }
+  pill('net-status','…Anwenden','info');
+  const r = await api('POST','/api/network/apply', data);
+  if (r.ok) {
+    pill('net-status',`✓ Statische IP: ${data.ip} · Service-IP: ${SERVICE_IP} · beide aktiv`,'ok');
+    netOk = true;
+    document.getElementById('btn-net-next').disabled = false;
+  } else {
+    pill('net-status','✗ '+(r.errors||[]).join(', '),'err');
+  }
+}
+async function pingTest() {
+  const gw = document.getElementById('net-gw').value.trim() || SERVICE_IP;
+  pill('net-status',`…Ping zu ${gw}`,'info');
+  const r = await api('POST','/api/network/ping',{target:gw});
+  pill('net-status', r.ok?`✓ ${gw} erreichbar`:`✗ kein Ping zu ${gw}`, r.ok?'ok':'err');
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+async function detectSources() {
+  const list = await api('GET','/api/audio/sources');
+  const sel  = document.getElementById('audio-src');
+  sel.innerHTML = list.map(s=>`<option value="${s}">${s}</option>`).join('');
+  pill('audio-status',`✓ ${list.length} Quelle(n)`,'ok');
+}
+async function saveAudio() {
+  await api('POST','/api/audio/save',{
+    source: document.getElementById('audio-src').value,
+    volume: parseInt(document.getElementById('audio-vol').value)
+  });
+  pill('audio-status','✓ Gespeichert','ok');
+}
+async function saveAudioAndNext() { await saveAudio(); goStep(3); }
+async function doMute(m) {
+  await api('POST','/api/audio/mute',{source:document.getElementById('audio-src').value,mute:m});
+  pill('audio-status',m?'🔇 Mute aktiv':'🔈 Unmute','ok');
+}
+async function testAudio() {
+  const r = await api('POST','/api/audio/test');
+  pill('audio-status',r.ok?`▶ ${r.playing}`:r.msg||'Fehler',r.ok?'info':'warn');
+}
+
+// ── MP3 Liste ─────────────────────────────────────────────────────────────────
+async function loadMp3s() {
+  mp3List = await api('GET','/api/mp3s');
+  const ul = document.getElementById('mp3-list');
+  document.getElementById('mp3-count').textContent = `${mp3List.length} Datei${mp3List.length!==1?'en':''}`;
+  if (!mp3List.length) {
+    ul.innerHTML='<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Noch keine Sounds — oben hochladen</div>';
+    return;
+  }
+  ul.innerHTML = mp3List.map(f => {
+    const isGpio = f.trigger_type === 'gpio';
+    const badge  = isGpio
+      ? `<span class="ttype-badge ttype-gpio">🔌 GPIO</span>`
+      : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
+    return `<div class="mp3-row" id="mr-${esc(f.name)}">
+      <span class="mp3-icon">♪</span>
+      <div class="mp3-info">
+        <div class="mp3-name">${esc(f.name)}</div>
+        <div class="mp3-meta">/cgi-bin/index.cgi?…&spotrequest=${esc(f.name)}</div>
+      </div>
+      ${badge}
+      <div class="mp3-size">${f.size_kb} KB</div>
+      <div class="mp3-actions">
+        <button class="btn btn-primary btn-sm" onclick="playMp3('${esc(f.name)}')">▶</button>
+        <button class="btn btn-ghost btn-sm" title="Trigger-Typ" onclick="openTriggerModal('${esc(f.stem)}','${esc(f.name)}','${f.trigger_type||'http'}',${f.gpio_pin||'null'})">⚡</button>
+        <button class="btn btn-ghost btn-sm" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteMp3('${esc(f.name)}')">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function playMp3(name) {
+  document.querySelectorAll('.mp3-row').forEach(r=>r.classList.remove('playing'));
+  const el = document.getElementById(`mr-${name}`);
+  if (el) el.classList.add('playing');
+  await api('POST','/api/mp3s/play',{name});
+  setTimeout(()=>{ if(el) el.classList.remove('playing'); },5000);
+  pill('sounds-status',`▶ ${name}`,'info');
+}
+
+async function deleteMp3(name) {
+  if (!confirm(`"${name}" löschen?`)) return;
+  const r = await api('POST','/api/mp3s/delete',{name});
+  if (r.ok) { pill('sounds-status',`✓ Gelöscht: ${name}`,'ok'); loadMp3s(); }
+  else pill('sounds-status',`✗ ${r.msg}`,'err');
+}
+
+// ── Rename ────────────────────────────────────────────────────────────────────
+function openRename(name,stem) {
+  document.getElementById('rename-old').value=name;
+  document.getElementById('rename-input').value=stem;
+  document.getElementById('rename-modal').classList.add('show');
+  setTimeout(()=>document.getElementById('rename-input').focus(),60);
+}
+function closeModal() { document.getElementById('rename-modal').classList.remove('show'); }
+async function doRename() {
+  const old=document.getElementById('rename-old').value;
+  const nw=document.getElementById('rename-input').value.trim();
+  if(!nw) return;
+  const r=await api('POST','/api/mp3s/rename',{old,new:nw});
+  if(r.ok){ closeModal(); pill('sounds-status',`✓ → ${r.new_name}`,'ok'); loadMp3s(); }
+  else pill('sounds-status',`✗ ${r.msg}`,'err');
+}
+document.getElementById('rename-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
+document.getElementById('rename-input').addEventListener('keydown',e=>{if(e.key==='Enter')doRename();if(e.key==='Escape')closeModal();});
+
+// ── Trigger-Typ Modal ─────────────────────────────────────────────────────────
+function openTriggerModal(stem, name, type, gpioPin) {
+  selectedTriggerType = type || 'http';
+  document.getElementById('tmod-stem').value = stem;
+  document.getElementById('tmod-name').textContent = name;
+  selectTrigger(selectedTriggerType);
+  // GPIO-Pin Dropdown befüllen
+  const sel = document.getElementById('tmod-gpio-pin');
+  sel.innerHTML = GPIO_PINS.map(p=>`<option value="${p}"${p==gpioPin?' selected':''}>GPIO ${p}</option>`).join('');
+  document.getElementById('trigger-modal').classList.add('show');
+}
+function closeTriggerModal() { document.getElementById('trigger-modal').classList.remove('show'); }
+function selectTrigger(type) {
+  selectedTriggerType = type;
+  document.getElementById('tsel-http').className = 'tsel-btn' + (type==='http'?' active-http':'');
+  document.getElementById('tsel-gpio').className = 'tsel-btn' + (type==='gpio'?' active-gpio':'');
+  document.getElementById('tmod-gpio-row').style.display = type==='gpio'?'block':'none';
+  const hint = document.getElementById('tmod-hint');
+  if (type==='http') {
+    hint.className='spill show info';
+    hint.innerHTML='HTTP: WiFi-Button sendet GET an /cgi-bin/index.cgi?webif-pass=1&spotrequest=…';
+  } else {
+    hint.className='spill show info';
+    hint.style.color='var(--purple)';
+    hint.style.background='var(--purple-dim)';
+    hint.innerHTML='GPIO: Physischer Taster löst direkt aus — kein HTTP-Trigger für diesen Sound.';
+  }
+}
+async function saveTriggerType() {
+  const stem = document.getElementById('tmod-stem').value;
+  const gpioPin = selectedTriggerType==='gpio'
+    ? parseInt(document.getElementById('tmod-gpio-pin').value) : null;
+  const r = await api('POST','/api/mp3s/trigger',{stem, trigger_type:selectedTriggerType, gpio_pin:gpioPin});
+  if (r.ok) {
+    closeTriggerModal();
+    pill('sounds-status',`✓ Trigger für ${stem}: ${selectedTriggerType.toUpperCase()}`,'ok');
+    loadMp3s();
+  }
+}
+document.getElementById('trigger-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeTriggerModal();});
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+const dz=document.getElementById('dropzone'),fi=document.getElementById('file-input');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');doUpload(e.dataTransfer.files);});
+fi.addEventListener('change',()=>doUpload(fi.files));
+
+async function doUpload(files) {
+  if (!files.length) return;
+  const arr = Array.from(files);
+  const ul  = document.getElementById('up-list');
+
+  // Zeige sofort alle Dateien mit laufendem Balken
+  ul.innerHTML = arr.map((f, i) => `
+    <div class="up-row" id="up-${i}">
+      <div class="up-row-top">
+        <span class="up-name" title="${esc(f.name)}">${esc(f.name)}</span>
+        <span class="up-status converting" id="up-st-${i}">⏳ konvertiert…</span>
+      </div>
+      <div class="up-bar-wrap"><div class="up-bar" id="up-bar-${i}" style="width:30%"></div></div>
+      <div class="up-detail" id="up-det-${i}"></div>
+    </div>`).join('');
+
+  pill('upload-status', `↑ ${arr.length} Datei${arr.length!==1?'en':''} werden parallel konvertiert…`, 'info');
+
+  // Balken für "läuft noch" animieren lassen — CSS übernimmt das via animation
+  const form = new FormData();
+  arr.forEach(f => form.append('file', f));
+
+  // Upload + serverseitige Parallel-Konvertierung
+  const res     = await fetch('/api/upload', {method:'POST', body:form});
+  const results = await res.json();
+
+  // Ergebnisse einblenden
+  let okCount = 0;
+  results.forEach((r, i) => {
+    const row = document.getElementById(`up-${i}`);
+    const bar = document.getElementById(`up-bar-${i}`);
+    const st  = document.getElementById(`up-st-${i}`);
+    const det = document.getElementById(`up-det-${i}`);
+    if (!row) return;
+    if (r.ok) {
+      okCount++;
+      row.classList.add('done-ok');
+      bar.classList.add('done');
+      st.className  = 'up-status ok';
+      st.textContent = `✓ ${r.size_kb} KB`;
+      det.textContent = `→ ${r.saved_as}`;
+    } else {
+      row.classList.add('done-err');
+      bar.className = 'up-bar err';
+      bar.style.width = '100%';
+      st.className  = 'up-status err';
+      st.textContent = '✗ Fehler';
+      det.textContent = r.error || 'Konvertierung fehlgeschlagen';
+    }
+  });
+
+  pill('upload-status',
+    `✓ ${okCount} von ${results.length} konvertiert`,
+    okCount === results.length ? 'ok' : 'warn');
+  fi.value = '';
+  loadMp3s();
+}
+
+// ── GPIO ──────────────────────────────────────────────────────────────────────
+async function loadGpio() {
+  if(!mp3List.length) mp3List=await api('GET','/api/mp3s');
+  const cfg=await api('GET','/api/status');
+  const mapping=cfg.config?.gpio||{};
+  // Nur GPIO-Sounds anzeigen
+  const gpioSounds=mp3List.filter(f=>f.trigger_type==='gpio');
+  const opts=['— keiner —',...gpioSounds.map(f=>f.stem)];
+  document.getElementById('gpio-grid').innerHTML=GPIO_PINS.map(pin=>`
+    <div class="gpio-row">
+      <span class="gpio-pin">GPIO ${pin}</span>
+      <select id="gpio-${pin}">
+        ${opts.map(o=>`<option value="${o}"${(mapping[pin]||'— keiner —')===o?' selected':''}>${o}</option>`).join('')}
+      </select>
+    </div>`).join('');
+  if(!gpioSounds.length){
+    document.getElementById('gpio-grid').innerHTML=
+      '<div style="color:var(--t3);font-size:13px;padding:8px">Keine Sounds mit Trigger-Typ "GPIO" — erst im Sounds-Schritt zuweisen.</div>';
+  }
+}
+async function saveGpio() {
+  const gpio={};
+  GPIO_PINS.forEach(p=>{const v=document.getElementById(`gpio-${p}`)?.value;if(v&&v!=='— keiner —')gpio[p]=v;});
+  await api('POST','/api/gpio/save',{gpio});
+  pill('gpio-status',`✓ ${Object.keys(gpio).length} Mapping(s)`,'ok');
+}
+
+// ── Finish ────────────────────────────────────────────────────────────────────
+async function finishWizard() {
+  await saveGpio();
+  await api('POST','/api/setup/finish');
+  openDashboard();
+}
+
+// ── Dashboard Tabs ───────────────────────────────────────────────────────────
+function dsSwitchTab(tab) {
+  document.getElementById('ds-pane-sounds').style.display = tab==='sounds' ? 'block' : 'none';
+  document.getElementById('ds-pane-upload').style.display = tab==='upload' ? 'block' : 'none';
+  document.getElementById('ds-tab-sounds').className = 'ds-tab' + (tab==='sounds' ? ' active' : '');
+  document.getElementById('ds-tab-upload').className = 'ds-tab' + (tab==='upload' ? ' active' : '');
+}
+
+// Dashboard-eigene Dropzone
+const dsDz = document.getElementById('ds-dropzone');
+const dsFi = document.getElementById('ds-file-input');
+dsDz.addEventListener('dragover', e=>{e.preventDefault();dsDz.classList.add('over');});
+dsDz.addEventListener('dragleave', ()=>dsDz.classList.remove('over'));
+dsDz.addEventListener('drop', e=>{e.preventDefault();dsDz.classList.remove('over');doDsUpload(e.dataTransfer.files);});
+dsFi.addEventListener('change', ()=>doDsUpload(dsFi.files));
+
+async function doDsUpload(files) {
+  if (!files.length) return;
+  const arr = Array.from(files);
+  const ul  = document.getElementById('ds-up-list');
+
+  ul.innerHTML = arr.map((f, i) => `
+    <div class="up-row" id="ds-up-${i}">
+      <div class="up-row-top">
+        <span class="up-name" title="${esc(f.name)}">${esc(f.name)}</span>
+        <span class="up-status converting" id="ds-up-st-${i}">⏳ konvertiert…</span>
+      </div>
+      <div class="up-bar-wrap"><div class="up-bar" id="ds-up-bar-${i}" style="width:30%"></div></div>
+      <div class="up-detail" id="ds-up-det-${i}"></div>
+    </div>`).join('');
+
+  pill('ds-upload-status', `↑ ${arr.length} Datei${arr.length!==1?'en':''} werden parallel konvertiert…`, 'info');
+
+  const form = new FormData();
+  arr.forEach(f => form.append('file', f));
+  const res     = await fetch('/api/upload', {method:'POST', body:form});
+  const results = await res.json();
+
+  let okCount = 0;
+  results.forEach((r, i) => {
+    const row = document.getElementById(`ds-up-${i}`);
+    const bar = document.getElementById(`ds-up-bar-${i}`);
+    const st  = document.getElementById(`ds-up-st-${i}`);
+    const det = document.getElementById(`ds-up-det-${i}`);
+    if (!row) return;
+    if (r.ok) {
+      okCount++;
+      row.classList.add('done-ok');
+      bar.classList.add('done');
+      st.className   = 'up-status ok';
+      st.textContent = `✓ ${r.size_kb} KB`;
+      det.textContent = `→ ${r.saved_as}`;
+    } else {
+      row.classList.add('done-err');
+      bar.className  = 'up-bar err';
+      bar.style.width = '100%';
+      st.className   = 'up-status err';
+      st.textContent = '✗ Fehler';
+      det.textContent = r.error || 'Konvertierung fehlgeschlagen';
+    }
+  });
+
+  pill('ds-upload-status',
+    `✓ ${okCount} von ${results.length} konvertiert`,
+    okCount === results.length ? 'ok' : 'warn');
+  dsFi.value = '';
+  // Sounds-Tab neu laden und drauf switchen
+  await loadDashboard();
+  dsSwitchTab('sounds');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  const st=await api('GET','/api/status');
+  if(st.setup_done){
+    openDashboard();
+  } else {
+    document.getElementById('view-wizard').style.display='flex';
+    buildSidebar();
+    await loadIfaces();
+    await detectSources();
+    // Gespeicherte Config laden
+    const n=st.config?.network||{},a=st.config?.audio||{};
+    if(n.ip){document.getElementById('net-ip').value=n.ip;document.getElementById('net-preview-static').textContent=n.ip;}
+    if(n.mask) document.getElementById('net-mask').value=n.mask;
+    if(n.gateway) document.getElementById('net-gw').value=n.gateway;
+    if(n.dns) document.getElementById('net-dns').value=n.dns;
+    if(n.interface) document.getElementById('net-iface').value=n.interface;
+    if(a.source) document.getElementById('audio-src').value=a.source;
+    if(a.volume){document.getElementById('audio-vol').value=a.volume;document.getElementById('vol-val').textContent=a.volume+'%';}
+    if(n.ip&&ipRe.test(n.ip)&&n.gateway){
+      netOk=true;
+      document.getElementById('btn-net-apply').disabled=false;
+      document.getElementById('btn-net-next').disabled=false;
+      onNetInput();
+    }
+    // Wenn Setup schon gemacht aber nochmal geöffnet: Zahnrad zeigen
+    document.getElementById('btn-to-dashboard').style.display='inline-flex';
+  }
+}
+init();
+</script>
+</body>
+</html>
