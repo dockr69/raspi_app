@@ -502,6 +502,35 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           Line-In → Line-Out läuft <b style="color:var(--text)">permanent</b>.
           Beim Trigger: Line-In kurz stumm → Ton → Line-In wieder aktiv.
         </div>
+        <div class="card">
+          <div class="card-title">🎧 Combo Jack / Headset (3,5 mm TRRS)</div>
+          <div style="font-size:12px;color:var(--t2);margin-bottom:14px">
+            Radxa ROCK 3A, 4C+ und andere Boards mit kombiniertem Headset-Anschluss benötigen
+            das <b style="color:var(--text)">Headset-Profil</b>, damit der Eingang (Mikrofon/Line-In)
+            am 3,5-mm-Anschluss aktiv ist.
+          </div>
+          <div class="frow">
+            <div class="flabel">Soundkarte</div>
+            <div class="fwrap">
+              <div style="display:flex;gap:7px">
+                <select id="card-select" style="flex:1"></select>
+                <button class="btn btn-ghost btn-sm" onclick="loadCards()">↺</button>
+              </div>
+              <div class="fhint">PulseAudio-Karte mit 3,5-mm-Anschluss</div>
+            </div>
+          </div>
+          <div class="frow">
+            <div class="flabel">Profil</div>
+            <div class="fwrap">
+              <select id="profile-select" style="width:100%"></select>
+              <div class="fhint">Headset-Profil aktiviert Eingang + Ausgang am selben Stecker</div>
+            </div>
+          </div>
+          <div class="brow">
+            <button class="btn btn-green btn-sm" onclick="applyCardProfile()">✓ Profil setzen</button>
+          </div>
+          <div class="spill" id="card-status"></div>
+        </div>
         <div class="step-nav">
           <button class="btn btn-ghost" onclick="goStep(1)">← Zurück</button>
           <div class="step-prog">Schritt 3 von 5</div>
@@ -800,6 +829,45 @@ async function doMute(m) {
 async function testAudio() {
   const r = await api('POST','/api/audio/test');
   pill('audio-status',r.ok?`▶ ${r.playing}`:r.msg||'Fehler',r.ok?'info':'warn');
+}
+async function loadCards() {
+  const list = await api('GET', '/api/audio/cards');
+  const cSel = document.getElementById('card-select');
+  const pSel = document.getElementById('profile-select');
+  if (!list || !list.length) {
+    cSel.innerHTML = '<option value="">– keine Karten gefunden –</option>';
+    pSel.innerHTML = '';
+    return;
+  }
+  cSel.innerHTML = list.map(c =>
+    `<option value="${c.name}">${c.name}</option>`
+  ).join('');
+  // Populate profiles for first card
+  populateProfiles(list, list[0]);
+  cSel.onchange = () => {
+    const card = list.find(c => c.name === cSel.value);
+    if (card) populateProfiles(list, card);
+  };
+}
+function populateProfiles(list, card) {
+  const pSel = document.getElementById('profile-select');
+  pSel.innerHTML = card.profiles.map(p => {
+    const isHeadset = p.includes('headset');
+    return `<option value="${p}" ${isHeadset ? 'style="font-weight:700;color:var(--acc)"' : ''}>${p}${isHeadset ? ' ★' : ''}</option>`;
+  }).join('');
+  // Pre-select active profile or first headset profile
+  const headset = card.profiles.find(p => p.includes('headset'));
+  const active  = card.active_profile;
+  if (active && card.profiles.includes(active)) pSel.value = active;
+  else if (headset) pSel.value = headset;
+}
+async function applyCardProfile() {
+  const card    = document.getElementById('card-select').value;
+  const profile = document.getElementById('profile-select').value;
+  if (!card || !profile) { pill('card-status','Karte/Profil wählen','warn'); return; }
+  pill('card-status','…Setze Profil','info');
+  const r = await api('POST', '/api/audio/card-profile', { card, profile });
+  pill('card-status', r.ok ? `✓ ${profile}` : '✗ ' + (r.msg || 'Fehler'), r.ok ? 'ok' : 'err');
 }
 
 // ── MP3 Liste ─────────────────────────────────────────────────────────────────
@@ -1100,6 +1168,7 @@ async function init() {
     buildSidebar();
     await loadIfaces();
     await detectSources();
+    await loadCards();
     // Gespeicherte Config laden
     const n=st.config?.network||{},a=st.config?.audio||{};
     if(n.ip){document.getElementById('net-ip').value=n.ip;document.getElementById('net-preview-static').textContent=n.ip;}

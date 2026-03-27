@@ -274,6 +274,52 @@ def api_ping():
     return jsonify({"ok": r["ok"], "msg": r["out"] or r["err"]})
 
 # ── API: Audio ────────────────────────────────────────────────────────────────
+def detect_cards():
+    """Returns list of {name, profiles, active_profile} for all PulseAudio cards."""
+    out = run("pactl list cards 2>/dev/null")["out"]
+    cards = []
+    cur = None
+    in_profiles = False
+    for line in out.splitlines():
+        if line.startswith("Card #"):
+            if cur and cur["name"]:
+                cards.append(cur)
+            cur = {"name": "", "profiles": [], "active_profile": ""}
+            in_profiles = False
+        elif cur is not None:
+            s = line.strip()
+            if s.startswith("Name:"):
+                cur["name"] = s[5:].strip()
+            elif s == "Profiles:":
+                in_profiles = True
+            elif s.startswith("Active Profile:"):
+                cur["active_profile"] = s[15:].strip()
+                in_profiles = False
+            elif s.startswith(("Ports:", "Properties:", "Formats:")):
+                in_profiles = False
+            elif in_profiles and ":" in s:
+                pname = s.split(":")[0].strip()
+                if pname and not any(c.isspace() for c in pname):
+                    cur["profiles"].append(pname)
+    if cur and cur["name"]:
+        cards.append(cur)
+    return cards
+
+@app.route('/api/audio/cards')
+def api_cards():
+    return jsonify(detect_cards())
+
+@app.route('/api/audio/card-profile', methods=['POST'])
+def api_card_profile():
+    d = request.json
+    card = d.get("card", "")
+    profile = d.get("profile", "")
+    # Validate: no shell special chars
+    if not re.match(r'^[\w@.:+-]+$', card) or not re.match(r'^[\w@.:+/-]+$', profile):
+        return jsonify({"ok": False, "msg": "Ungültiger Wert"}), 400
+    r = run(f"pactl set-card-profile '{card}' '{profile}'")
+    return jsonify({"ok": r["ok"], "msg": r["err"] if not r["ok"] else "Profil gesetzt"})
+
 @app.route('/api/audio/sources')
 def api_sources():
     return jsonify(detect_sources())
@@ -500,35 +546,94 @@ def _write_gpio_script(cfg):
         if sc.get("trigger_type") == "gpio" and sc.get("gpio_pin") is not None:
             gpio_map[sc["gpio_pin"]] = stem
     if not gpio_map:
-        # Keine GPIO-Sounds mehr → Daemon stoppen
         run("systemctl stop radxa-audio-gpio 2>/dev/null")
         return
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
-    lines = [
-        "#!/usr/bin/env python3",
-        "# GPIO-Daemon – auto-generiert von Radxa Audio Konfigurator",
-        "import RPi.GPIO as GPIO, subprocess, time, os",
-        f"MP3_FOLDER  = '{MP3_FOLDER}'",
-        f"LINE_SOURCE = {repr(src)}",
-        f"GPIO_MAP    = {repr(gpio_map)}",
-        "GPIO.setmode(GPIO.BCM)",
-        "for p in GPIO_MAP: GPIO.setup(p, GPIO.IN, pull_up_down=GPIO.PUD_UP)",
-        "def cb(ch):",
-        "    stem = GPIO_MAP.get(ch)",
-        "    if not stem: return",
-        "    path = os.path.join(MP3_FOLDER, stem + '.mp3')",
-        "    if not os.path.isfile(path): return",
-        "    subprocess.run(['pactl','set-source-mute', LINE_SOURCE,'1'])",
-        "    subprocess.run(['mpg123','-q', path])",
-        "    subprocess.run(['pactl','set-source-mute', LINE_SOURCE,'0'])",
-        "for p in GPIO_MAP:",
-        "    GPIO.add_event_detect(p, GPIO.FALLING, callback=cb, bouncetime=200)",
-        "try:",
-        "    while True: time.sleep(0.5)",
-        "finally: GPIO.cleanup()",
-    ]
+    # Uses python3-gpiod (works on Radxa ROCK 3A, 4C+ and all libgpiod boards)
+    # Supports gpiod 2.x API (Debian Bookworm+) with automatic fallback to gpiod 1.x
+    script = f"""#!/usr/bin/env python3
+# GPIO-Daemon – auto-generiert von Radxa Audio Konfigurator
+# Kompatibel mit Radxa ROCK 3A, 4C+ und anderen Boards (gpiod 1.x + 2.x)
+import subprocess, time, os, sys, threading
+
+MP3_FOLDER  = {repr(str(MP3_FOLDER))}
+LINE_SOURCE = {repr(src)}
+GPIO_MAP    = {repr(gpio_map)}
+CHIP        = '/dev/gpiochip0'
+DEBOUNCE    = 0.2
+
+def play(stem):
+    path = os.path.join(MP3_FOLDER, stem + '.mp3')
+    if not os.path.isfile(path):
+        return
+    subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'])
+    subprocess.run(['mpg123', '-q', path])
+    subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'])
+
+_last = {{}}
+_lock = threading.Lock()
+
+def _debounce(pin):
+    now = time.monotonic()
+    with _lock:
+        if now - _last.get(pin, 0) < DEBOUNCE:
+            return False
+        _last[pin] = now
+    return True
+
+try:
+    import gpiod
+except ImportError:
+    print('python3-gpiod fehlt: sudo apt install python3-gpiod', file=sys.stderr)
+    sys.exit(1)
+
+if hasattr(gpiod, 'request_lines'):
+    # gpiod >= 2.0
+    from gpiod.line import Direction, Bias, Edge
+    from datetime import timedelta
+    with gpiod.request_lines(
+        CHIP,
+        consumer='radxa-audio',
+        config={{
+            tuple(GPIO_MAP.keys()): gpiod.LineSettings(
+                direction=Direction.INPUT,
+                bias=Bias.PULL_UP,
+                edge_detection=Edge.FALLING,
+                debounce_period=timedelta(milliseconds=int(DEBOUNCE * 1000)),
+            )
+        }}
+    ) as req:
+        while True:
+            if req.wait_edge_events(timeout=timedelta(seconds=1)):
+                for ev in req.read_edge_events():
+                    stem = GPIO_MAP.get(ev.line_offset)
+                    if stem and _debounce(ev.line_offset):
+                        threading.Thread(target=play, args=(stem,), daemon=True).start()
+else:
+    # gpiod 1.x
+    chip  = gpiod.Chip(CHIP)
+    lines = chip.get_lines(list(GPIO_MAP.keys()))
+    lines.request(
+        consumer='radxa-audio',
+        type=gpiod.LINE_REQ_EV_FALLING_EDGE,
+        flags=gpiod.LINE_REQ_FLAG_BIAS_PULL_UP,
+    )
+    try:
+        while True:
+            ev_bulk = lines.event_wait(sec=1)
+            if ev_bulk:
+                for line in ev_bulk:
+                    ev = line.event_read()
+                    if ev.type == gpiod.LineEvent.FALLING_EDGE:
+                        pin  = line.offset()
+                        stem = GPIO_MAP.get(pin)
+                        if stem and _debounce(pin):
+                            threading.Thread(target=play, args=(stem,), daemon=True).start()
+    finally:
+        lines.release()
+"""
     with open("/usr/local/bin/radxa_gpio.py", "w") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write(script)
     os.chmod("/usr/local/bin/radxa_gpio.py", 0o755)
     run("systemctl restart radxa-audio-gpio 2>/dev/null")
 

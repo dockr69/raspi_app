@@ -43,12 +43,13 @@ apt-get install -y \
   ffmpeg mpg123 \
   openssh-server \
   avahi-daemon avahi-utils \
+  python3-gpiod \
   chromium-browser x11-xserver-utils \
   openbox lightdm lightdm-gtk-greeter \
   --no-install-recommends 2>/dev/null \
 || apt-get install -y \
   python3-pip python3-flask ffmpeg mpg123 \
-  openssh-server avahi-daemon chromium \
+  openssh-server avahi-daemon python3-gpiod chromium \
   2>/dev/null \
 || warn "Einige Pakete nicht gefunden – ggf. manuell nachinstallieren"
 
