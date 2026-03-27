@@ -223,9 +223,49 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:var(--s1)}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── Terminal Panel ── */
+.term-panel{position:fixed;bottom:0;left:0;right:0;height:320px;background:#0d1117;border-top:2px solid var(--acc);display:flex;flex-direction:column;z-index:2000;transform:translateY(100%);transition:transform .2s ease}
+.term-panel.open{transform:translateY(0)}
+.term-topbar{display:flex;align-items:center;padding:0 14px;height:36px;background:#161b24;border-bottom:1px solid #30363d;flex-shrink:0;gap:10px}
+.term-title{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--acc);letter-spacing:.1em}
+.term-cwd{font-family:var(--mono);font-size:11px;color:var(--t2);flex:1}
+.term-btn{background:none;border:none;color:var(--t2);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:3px}
+.term-btn:hover{background:#30363d;color:var(--text)}
+.term-output{flex:1;overflow-y:auto;padding:10px 14px;font-family:var(--mono);font-size:12px;line-height:1.7;color:#c9d1d9;background:#0d1117}
+.term-output::-webkit-scrollbar{width:4px}
+.term-output::-webkit-scrollbar-thumb{background:#30363d}
+.term-line{white-space:pre-wrap;word-break:break-all}
+.term-line.cmd{color:var(--acc)}
+.term-line.err{color:var(--red)}
+.term-line.info{color:var(--t2)}
+.term-input-row{display:flex;align-items:center;padding:6px 14px;background:#161b24;border-top:1px solid #30363d;flex-shrink:0;gap:6px}
+.term-prompt{font-family:var(--mono);font-size:12px;color:var(--green);white-space:nowrap;flex-shrink:0}
+.term-input{flex:1;background:none;border:none;outline:none;font-family:var(--mono);font-size:12px;color:#c9d1d9;caret-color:var(--acc)}
+.term-toggle{display:flex;align-items:center;gap:6px;background:var(--s2);border:1px solid var(--border2);border-radius:6px;padding:4px 12px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--t2);transition:color .15s,border-color .15s}
+.term-toggle:hover{color:var(--acc);border-color:var(--acc)}
 </style>
 </head>
 <body>
+
+<!-- ══════════════════════════════════════════
+     TERMINAL PANEL (global, fixed bottom)
+══════════════════════════════════════════ -->
+<div class="term-panel" id="term-panel">
+  <div class="term-topbar">
+    <span class="term-title">▶ TERMINAL</span>
+    <span class="term-cwd" id="term-cwd-display">root@textspeicher:/root</span>
+    <button class="term-btn" onclick="termClear()" title="Leeren">⌫</button>
+    <button class="term-btn" onclick="toggleTerminal()" title="Schließen">✕</button>
+  </div>
+  <div class="term-output" id="term-output"></div>
+  <div class="term-input-row">
+    <span class="term-prompt" id="term-prompt">root@textspeicher:~#&nbsp;</span>
+    <input class="term-input" id="term-input" type="text" autocomplete="off"
+           autocorrect="off" autocapitalize="off" spellcheck="false"
+           placeholder="Befehl eingeben…">
+  </div>
+</div>
 
 <!-- ══════════════════════════════════════════
      STATUS DASHBOARD (nach Setup)
@@ -237,6 +277,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     <div class="tchip" id="ds-chip-static">IP: <b id="ds-static-ip-chip">–</b></div>
     <div class="tchip">Service: <b>10.0.0.10</b></div>
     <div class="tchip" id="ds-ssh-chip" style="display:none">SSH <b id="ds-ssh-val">–</b></div>
+    <button class="tbtn" onclick="toggleTerminal()" title="Terminal">⌨</button>
     <button class="tbtn" onclick="openWizard()" title="Einstellungen">⚙</button>
   </div>
   <div class="ds-content">
@@ -369,6 +410,9 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     <div class="sb-bottom">
       <div class="sb-bottom-row">Service-IP: <b>10.0.0.10</b></div>
       <div class="sb-bottom-row">mDNS: <b>textspeicher.local</b></div>
+      <div style="padding:10px 16px 14px">
+        <button class="term-toggle" style="width:100%;justify-content:center" onclick="toggleTerminal()">⌨ Terminal</button>
+      </div>
     </div>
   </nav>
 
@@ -1253,6 +1297,84 @@ async function init() {
   }
 }
 init();
+
+// ── Terminal ──────────────────────────────────────────────────────────────────
+(function() {
+  const panel   = document.getElementById('term-panel');
+  const output  = document.getElementById('term-output');
+  const input   = document.getElementById('term-input');
+  const prompt  = document.getElementById('term-prompt');
+  const cwdDisp = document.getElementById('term-cwd-display');
+  let history = [], histIdx = -1, termOpen = false;
+
+  function formatCwd(cwd) {
+    return cwd.replace(/^\/root$/, '~').replace(/^\/root\//, '~/');
+  }
+  function updatePrompt(cwd) {
+    const short = formatCwd(cwd);
+    prompt.textContent  = `root@textspeicher:${short}# `;
+    cwdDisp.textContent = `root@textspeicher:${cwd}`;
+  }
+  function appendLine(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'term-line' + (cls ? ' ' + cls : '');
+    div.textContent = text;
+    output.appendChild(div);
+    output.scrollTop = output.scrollHeight;
+  }
+  function termClear() {
+    output.innerHTML = '';
+  }
+  function toggleTerminal() {
+    termOpen = !termOpen;
+    panel.classList.toggle('open', termOpen);
+    if (termOpen) setTimeout(() => input.focus(), 220);
+  }
+  window.termClear     = termClear;
+  window.toggleTerminal = toggleTerminal;
+
+  // Willkommensnachricht
+  appendLine('Radxa Audio · Web-Terminal', 'info');
+  appendLine('Läuft als root auf dem Gerät. Befehle direkt eingeben.', 'info');
+  appendLine('', '');
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      const cmd = input.value.trim();
+      input.value = '';
+      if (!cmd) return;
+      history.unshift(cmd);
+      if (history.length > 100) history.pop();
+      histIdx = -1;
+      appendLine(`${prompt.textContent}${cmd}`, 'cmd');
+      if (cmd === 'clear') { termClear(); return; }
+      try {
+        const r = await fetch('/api/terminal/exec', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({cmd})
+        });
+        const d = await r.json();
+        if (d.out) {
+          d.out.split('\n').forEach(l => appendLine(l));
+        }
+        updatePrompt(d.cwd || '/root');
+      } catch(err) {
+        appendLine('Verbindungsfehler', 'err');
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (histIdx < history.length - 1) histIdx++;
+      input.value = history[histIdx] || '';
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (histIdx > 0) histIdx--; else histIdx = -1;
+      input.value = histIdx >= 0 ? history[histIdx] : '';
+    } else if (e.key === 'Escape') {
+      toggleTerminal();
+    }
+  });
+})();
 </script>
 </body>
 </html>

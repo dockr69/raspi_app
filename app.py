@@ -161,6 +161,10 @@ def trigger_play(name):
     threading.Thread(target=_play_thread, args=(path, src, repeat), daemon=True).start()
     return True, os.path.basename(path)
 
+# ── Terminal-State ────────────────────────────────────────────────────────────
+_term_cwd  = ["/root"]
+_term_lock = threading.Lock()
+
 # Service-IP beim Start setzen
 ensure_service_ip()
 
@@ -673,6 +677,33 @@ def api_setup_reset():
     if os.path.exists(SETUP_DONE_FILE):
         os.remove(SETUP_DONE_FILE)
     return jsonify({"ok": True})
+
+# ── API: Terminal ─────────────────────────────────────────────────────────────
+@app.route('/api/terminal/exec', methods=['POST'])
+def api_terminal_exec():
+    cmd = (request.json or {}).get("cmd", "").strip()
+    if not cmd:
+        return jsonify({"ok": True, "out": "", "cwd": _term_cwd[0]})
+    with _term_lock:
+        cwd = _term_cwd[0]
+        # cd separat behandeln, damit es persistent wirkt
+        if re.match(r'^cd(\s|$)', cmd):
+            target = cmd[2:].strip() or "/root"
+            if not os.path.isabs(target):
+                target = os.path.normpath(os.path.join(cwd, target))
+            if os.path.isdir(target):
+                _term_cwd[0] = target
+                return jsonify({"ok": True, "out": "", "cwd": target})
+            return jsonify({"ok": True, "out": f"cd: {target}: No such file or directory", "cwd": cwd})
+        try:
+            r = subprocess.run(
+                cmd, shell=True, cwd=cwd,
+                capture_output=True, text=True, timeout=30
+            )
+            out = (r.stdout + r.stderr).rstrip()
+        except subprocess.TimeoutExpired:
+            out = "Timeout (30 s)"
+        return jsonify({"ok": True, "out": out, "cwd": _term_cwd[0]})
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 @app.route('/')
