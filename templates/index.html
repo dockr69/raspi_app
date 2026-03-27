@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Radxa · Audio Setup</title>
+<title>Audio Setup</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -272,7 +272,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 ══════════════════════════════════════════ -->
 <div id="view-status">
   <div class="ds-topbar">
-    <div class="tlogo"><div class="tpulse"></div>RADXA · AUDIO</div>
+    <div class="tlogo"><div class="tpulse"></div>AUDIO</div>
     <div class="tsep"></div>
     <div class="tchip" id="ds-chip-static">IP: <b id="ds-static-ip-chip">–</b></div>
     <div class="tchip">Service: <b>10.0.0.10</b></div>
@@ -418,7 +418,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 
   <div class="main">
     <header class="topbar">
-      <div class="tlogo"><div class="tpulse"></div>RADXA · AUDIO · WIZARD</div>
+      <div class="tlogo"><div class="tpulse"></div>AUDIO · WIZARD</div>
       <div class="tsep"></div>
       <button class="tbtn" id="btn-to-dashboard" onclick="openDashboard()" style="display:none" title="Zum Status">←</button>
     </header>
@@ -429,7 +429,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="pane active" id="pane-0">
         <div style="margin-bottom:24px">
           <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text)">Willkommen beim <span style="color:var(--acc)">Setup</span></div>
-          <div style="font-size:13px;color:var(--t2);margin-top:4px">Konfiguriert das Radxa ROCK 3A Audio-System Schritt für Schritt.</div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Audio-System Schritt für Schritt konfigurieren.</div>
         </div>
         <div class="card">
           <div class="card-title">📋 Schritte</div>
@@ -570,7 +570,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="card">
           <div class="card-title">🎧 Combo Jack / Headset (3,5 mm TRRS)</div>
           <div style="font-size:12px;color:var(--t2);margin-bottom:14px">
-            Radxa ROCK 3A, 4C+ und andere Boards mit kombiniertem Headset-Anschluss benötigen
+            Boards mit kombiniertem Headset-Anschluss (3A, 4C+, …) benötigen
             das <b style="color:var(--text)">Headset-Profil</b>, damit der Eingang (Mikrofon/Line-In)
             am 3,5-mm-Anschluss aktiv ist.
           </div>
@@ -1334,7 +1334,7 @@ init();
   window.toggleTerminal = toggleTerminal;
 
   // Willkommensnachricht
-  appendLine('Radxa Audio · Web-Terminal', 'info');
+  appendLine('Audio Konfigurator · Web-Terminal', 'info');
   appendLine('Läuft als root auf dem Gerät. Befehle direkt eingeben.', 'info');
   appendLine('', '');
 
