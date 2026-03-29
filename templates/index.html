@@ -1021,6 +1021,11 @@ async function loadIfaces() {
   const list = await api('GET','/api/network/interfaces');
   const sel  = document.getElementById('net-iface');
   sel.innerHTML = list.map(i=>`<option value="${i}">${i}</option>`).join('');
+  if (list.length === 1) {
+    sel.value = list[0];
+    sel.closest('.fwrap').insertAdjacentHTML('afterend',
+      `<div style="font-size:.85em;color:var(--acc);margin-top:4px">✓ Automatisch gewählt: <b>${list[0]}</b></div>`);
+  }
 }
 function onNetInput() {
   const ip = document.getElementById('net-ip').value.trim();
@@ -1063,7 +1068,12 @@ async function detectSources() {
   const list = await api('GET','/api/audio/sources');
   const sel  = document.getElementById('audio-src');
   sel.innerHTML = list.map(s=>`<option value="${s}">${s}</option>`).join('');
-  pill('audio-status',`✓ ${list.length} Quelle(n)`,'ok');
+  if (list.length === 1) {
+    sel.value = list[0];
+    pill('audio-status',`✓ Quelle automatisch gewählt: ${list[0]}`,'ok');
+  } else {
+    pill('audio-status',`✓ ${list.length} Quelle(n) – bitte wählen`,'ok');
+  }
 }
 async function saveAudio() {
   await api('POST','/api/audio/save',{
@@ -1103,6 +1113,11 @@ async function loadCards() {
   cSel.innerHTML = list.map(c =>
     `<option value="${c.name}">${c.name}</option>`
   ).join('');
+  // Bei nur einer Karte: automatisch wählen + Hinweis
+  if (list.length === 1) {
+    cSel.value = list[0].name;
+    pill('card-status',`✓ Karte automatisch gewählt: ${list[0].name}`,'ok');
+  }
   // Populate profiles for first card
   populateProfiles(list, list[0]);
   cSel.onchange = () => {

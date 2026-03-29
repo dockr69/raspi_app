@@ -326,7 +326,14 @@ def api_status():
 # ── API: Netzwerk ─────────────────────────────────────────────────────────────
 @app.route('/api/network/interfaces')
 def api_interfaces():
-    return jsonify(get_interfaces())
+    ifaces = get_interfaces()
+    # Bei nur einem Interface: automatisch in Config speichern
+    if len(ifaces) == 1:
+        cfg = load_cfg()
+        if not cfg.get("network", {}).get("interface"):
+            cfg.setdefault("network", {})["interface"] = ifaces[0]
+            save_cfg(cfg)
+    return jsonify(ifaces)
 
 @app.route('/api/network/validate', methods=['POST'])
 def api_net_validate():
@@ -442,7 +449,14 @@ def api_card_profile():
 
 @app.route('/api/audio/sources')
 def api_sources():
-    return jsonify(detect_sources())
+    sources = detect_sources()
+    # Bei nur einer Quelle: automatisch in Config speichern
+    if len(sources) == 1:
+        cfg = load_cfg()
+        if not cfg.get("audio", {}).get("source"):
+            cfg.setdefault("audio", {})["source"] = sources[0]
+            save_cfg(cfg)
+    return jsonify(sources)
 
 @app.route('/api/audio/save', methods=['POST'])
 def api_audio_save():
