@@ -1,15 +1,20 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  Radxa ROCK 3A – Audio Konfigurator · install.sh (FIXED 2026)
+#  Radxa ROCK 3A – Audio Konfigurator · install.sh (2026 Edition)
 #  · Flask Web-UI Port 80
 #  · Service-IP 10.0.0.10 permanent (3-fach abgesichert)
 #  · Hostname: textspeicher  →  textspeicher.local (mDNS)
 #  · Chromium Kiosk-Fullscreen beim Boot
 #  · SSH aktiviert (Port 22)
+#  · Logging: /var/log/radxa_install.log
 #  Als root ausführen: sudo bash install.sh
 # ═══════════════════════════════════════════════════════════════════
 set -e
 cd "$(dirname "$0")"
+
+LOG_FILE="/var/log/radxa_install.log"
+touch "$LOG_FILE"
+echo "=== Installations-Log gestartet: $(date) ===" > "$LOG_FILE"
 
 APP_SRC="$(pwd)"
 APP_DIR="/opt/radxa_audio"
@@ -22,10 +27,11 @@ SERVICE_IP="10.0.0.10"
 HOSTNAME_NEW="textspeicher"
 WEB_URL="http://${SERVICE_IP}"
 
-log()  { echo -e "\033[1;36m[INFO]\033[0m  $*"; }
-ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
-warn() { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
-err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*"; exit 1; }
+# Logging Funktionen (Ausgabe auf Konsole + Logdatei)
+log()  { echo -e "\033[1;36m[INFO]\033[0m  $*" | tee -a "$LOG_FILE"; }
+ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*" | tee -a "$LOG_FILE"; }
+warn() { echo -e "\033[1;33m[WARN]\033[0m  $*" | tee -a "$LOG_FILE"; }
+err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*" | tee -a "$LOG_FILE"; exit 1; }
 
 [ "$EUID" -ne 0 ] && err "Bitte als root ausführen: sudo bash install.sh"
 
@@ -35,51 +41,71 @@ echo "  ║   Radxa ROCK 3A · Audio Konfigurator Setup   ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 
-# ── 1. Pakete (KORRIGIERT FÜR RADXA BULLSEYE) ─────────────────────
-log "Installiere Abhängigkeiten..."
-apt-get update -qq
+# ── 1. Pakete & Logging ───────────────────────────────────────────
+log "Aktualisiere Paketquellen..."
+apt-get update -qq >> "$LOG_FILE" 2>&1 || warn "apt-get update hatte Warnungen, siehe Log."
 
-# Versuch der Installation mit Fallback auf 'chromium'
-apt-get install -y \
-  python3-pip python3-flask \
-  ffmpeg mpg123 \
-  openssh-server \
-  avahi-daemon avahi-utils \
-  python3-gpiod \
-  chromium x11-xserver-utils \
-  openbox lightdm lightdm-gtk-greeter \
-  --no-install-recommends 2>/dev/null \
-|| apt-get install -y \
-  python3-pip python3-flask ffmpeg mpg123 \
-  openssh-server avahi-daemon python3-gpiod chromium \
-  2>/dev/null \
-|| warn "Einige Pakete nicht gefunden – ggf. manuell nachinstallieren"
+INSTALLED_PKGS=()
+FAILED_PKGS=()
 
-# FIX: Erstelle Symlink falls nur 'chromium' statt 'chromium-browser' existiert
+# Funktion zum Installieren und Loggen einzelner Pakete
+install_pkg() {
+    PKG=$1
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG" --no-install-recommends >> "$LOG_FILE" 2>&1; then
+        ok "Installiert: $PKG"
+        INSTALLED_PKGS+=("$PKG")
+    else
+        warn "Fehlgeschlagen: $PKG"
+        FAILED_PKGS+=("$PKG")
+    fi
+}
+
+# Liste der benötigten Pakete (chromium statt chromium-browser)
+PACKAGES=(
+  "python3-pip" "python3-flask" "ffmpeg" "mpg123"
+  "openssh-server" "avahi-daemon" "avahi-utils"
+  "python3-gpiod" "x11-xserver-utils" "openbox"
+  "lightdm" "lightdm-gtk-greeter" "chromium"
+)
+
+log "Installiere Systempakete..."
+for p in "${PACKAGES[@]}"; do
+    install_pkg "$p"
+done
+
+# FIX: Erstelle Symlink falls 'chromium' installiert wurde, aber 'chromium-browser' fehlt
 if [ -f /usr/bin/chromium ] && [ ! -f /usr/bin/chromium-browser ]; then
     ln -s /usr/bin/chromium /usr/bin/chromium-browser
-    ok "Symlink für chromium-browser erstellt"
+    ok "Symlink für chromium-browser erstellt (Fix für Radxa Repo)."
+elif [ ! -f /usr/bin/chromium-browser ]; then
+    warn "Weder chromium noch chromium-browser gefunden. Kiosk-Modus könnte fehlschlagen."
 fi
 
-pip3 install flask --break-system-packages 2>/dev/null || pip3 install flask
-ok "Abhängigkeiten installiert"
+log "Installiere Flask via pip3..."
+if pip3 install flask --break-system-packages >> "$LOG_FILE" 2>&1; then
+    ok "Flask via pip (break-system-packages) installiert."
+elif pip3 install flask >> "$LOG_FILE" 2>&1; then
+    ok "Flask via pip installiert."
+else
+    warn "Pip Installation fehlgeschlagen. Prüfe Log."
+fi
 
 # ── 2. App-Dateien ────────────────────────────────────────────────
 log "Kopiere App nach ${APP_DIR}..."
 mkdir -p "$APP_DIR" "$SOUNDS_DIR"
 cp -r "$APP_SRC"/. "$APP_DIR/"
-chmod +x "${APP_DIR}/app.py"
+chmod +x "${APP_DIR}/app.py" >> "$LOG_FILE" 2>&1 || true
 ok "App-Dateien kopiert"
 
 # ── 3. SSH ────────────────────────────────────────────────────────
 log "Aktiviere SSH..."
-systemctl enable ssh  2>/dev/null || systemctl enable sshd  2>/dev/null || true
-systemctl start  ssh  2>/dev/null || systemctl start  sshd  2>/dev/null || true
+systemctl enable ssh  >> "$LOG_FILE" 2>&1 || systemctl enable sshd  >> "$LOG_FILE" 2>&1 || true
+systemctl start  ssh  >> "$LOG_FILE" 2>&1 || systemctl start  sshd  >> "$LOG_FILE" 2>&1 || true
 # PasswordAuthentication sicherstellen
 SSHD_CFG="/etc/ssh/sshd_config"
 if grep -q "^PasswordAuthentication no" "$SSHD_CFG" 2>/dev/null; then
   sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/" "$SSHD_CFG"
-  systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+  systemctl restart ssh >> "$LOG_FILE" 2>&1 || systemctl restart sshd >> "$LOG_FILE" 2>&1 || true
 fi
 ok "SSH aktiv auf Port 22"
 
@@ -89,14 +115,14 @@ hostnamectl set-hostname "$HOSTNAME_NEW" 2>/dev/null || hostname "$HOSTNAME_NEW"
 if ! grep -q "$HOSTNAME_NEW" /etc/hosts; then
   sed -i "s/127\.0\.1\.1.*/127.0.1.1\t${HOSTNAME_NEW}/" /etc/hosts
   grep -q "127.0.1.1.*${HOSTNAME_NEW}" /etc/hosts \
-    || echo "127.0.1.1	${HOSTNAME_NEW}" >> /etc/hosts
+    || echo -e "127.0.1.1\t${HOSTNAME_NEW}" >> /etc/hosts
 fi
 ok "Hostname: ${HOSTNAME_NEW}"
 
 # ── 5. mDNS (Avahi) ────────────────────────────────────────────────
 log "Konfiguriere mDNS (${HOSTNAME_NEW}.local)..."
-systemctl enable avahi-daemon 2>/dev/null || true
-systemctl start  avahi-daemon 2>/dev/null || true
+systemctl enable avahi-daemon >> "$LOG_FILE" 2>&1 || true
+systemctl start  avahi-daemon >> "$LOG_FILE" 2>&1 || true
 cat > "/etc/avahi/services/radxa-audio.service" <<'EOF'
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
@@ -108,7 +134,7 @@ cat > "/etc/avahi/services/radxa-audio.service" <<'EOF'
   </service>
 </service-group>
 EOF
-systemctl restart avahi-daemon 2>/dev/null || true
+systemctl restart avahi-daemon >> "$LOG_FILE" 2>&1 || true
 ok "mDNS: ${HOSTNAME_NEW}.local → Port 80"
 
 # ── 6. Service-IP permanent ────────────────────────────────────────
@@ -116,10 +142,9 @@ log "Setze Service-IP ${SERVICE_IP}..."
 IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
-log "Interface: ${IFACE}"
 
 # Sofort setzen
-ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" 2>/dev/null || true
+ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
 
 # /etc/network/interfaces.d (persistent)
 cat > "/etc/network/interfaces.d/${IFACE}-service" <<EOF
@@ -139,7 +164,7 @@ elif [ ! -f "$RC" ]; then
     "$MARKER" "$SERVICE_IP" "$IFACE" "$IFACE" > "$RC"
   chmod +x "$RC"
 fi
-ok "Service-IP ${SERVICE_IP} gesetzt (${IFACE}:service) — 3-fach abgesichert"
+ok "Service-IP ${SERVICE_IP} gesetzt (${IFACE}:service)"
 
 # ── 7. systemd: Web-Service ─────────────────────────────────────────
 log "Erstelle systemd-Service: ${WEB_SVC}..."
@@ -161,10 +186,10 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl daemon-reload
-systemctl enable "$WEB_SVC"
-systemctl start  "$WEB_SVC"
-ok "Web-Service gestartet"
+systemctl daemon-reload >> "$LOG_FILE" 2>&1
+systemctl enable "$WEB_SVC" >> "$LOG_FILE" 2>&1
+systemctl start  "$WEB_SVC" >> "$LOG_FILE" 2>&1
+ok "Web-Service konfiguriert"
 
 # ── 8. systemd: GPIO-Daemon ─────────────────────────────────────────
 log "Erstelle systemd-Service: ${GPIO_SVC}..."
@@ -183,15 +208,18 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl daemon-reload
-systemctl enable "$GPIO_SVC" 2>/dev/null || true
+systemctl daemon-reload >> "$LOG_FILE" 2>&1
+systemctl enable "$GPIO_SVC" >> "$LOG_FILE" 2>&1 || true
 ok "GPIO-Service eingerichtet"
 
 # ── 9. Kiosk-Modus ─────────────────────────────────────────────────
 log "Konfiguriere Chromium Kiosk-Modus..."
-KIOSK_USER="${SUDO_USER:-pi}"
+KIOSK_USER="${SUDO_USER:-rock}"
 if [ -z "$KIOSK_USER" ] || ! id "$KIOSK_USER" &>/dev/null; then
   KIOSK_USER="rock"
+  if ! id "$KIOSK_USER" &>/dev/null; then
+     KIOSK_USER="pi"
+  fi
 fi
 KIOSK_HOME=$(getent passwd "$KIOSK_USER" 2>/dev/null | cut -d: -f6 || echo "/home/$KIOSK_USER")
 
@@ -215,7 +243,7 @@ chromium-browser --kiosk --no-first-run --noerrdialogs \
   --check-for-update-interval=31536000 \
   "${WEB_URL}" &
 EOF
-chown -R "${KIOSK_USER}:" "${KIOSK_HOME}/.config" 2>/dev/null || true
+chown -R "${KIOSK_USER}:" "${KIOSK_HOME}/.config" >> "$LOG_FILE" 2>&1 || true
 
 # systemd Kiosk-Service (Fallback)
 cat > "/etc/systemd/system/${KIOSK_SVC}.service" <<EOF
@@ -241,12 +269,12 @@ User=${KIOSK_USER}
 [Install]
 WantedBy=graphical.target
 EOF
-systemctl daemon-reload
-systemctl enable "$KIOSK_SVC" 2>/dev/null || true
+systemctl daemon-reload >> "$LOG_FILE" 2>&1
+systemctl enable "$KIOSK_SVC" >> "$LOG_FILE" 2>&1 || true
 ok "Kiosk konfiguriert für User: ${KIOSK_USER}"
 
 # ── 10. Zusammenfassung ─────────────────────────────────────────────
-DEVICE_IP=$(hostname -I | awk '{print $1}')
+DEVICE_IP=$(hostname -I | awk '{print $1}' || echo "Unbekannt")
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
 echo "  ║           Setup abgeschlossen ✓              ║"
@@ -254,11 +282,19 @@ echo "  ╠═══════════════════════
 printf  "  ║  Web-UI:      http://%-24s║\n" "${DEVICE_IP}"
 printf  "  ║  Service-IP:  http://%-24s║\n" "${SERVICE_IP}"
 printf  "  ║  mDNS:        http://%-24s║\n" "${HOSTNAME_NEW}.local"
-printf  "  ║  SSH:         ssh pi@%-23s║\n" "${SERVICE_IP}"
-echo "  ║  Trigger:     .../cgi-bin/index.cgi?...     ║"
-echo "  ║                                              ║"
-echo "  ║  Laptop: IP 10.0.0.1 / Maske /24            ║"
+printf  "  ║  SSH:         ssh ${KIOSK_USER}@%-23s║\n" "${SERVICE_IP}"
+echo "  ║  Log-Datei:   /var/log/radxa_install.log     ║"
 echo "  ╚══════════════════════════════════════════════╝"
+echo ""
+
+if [ ${#FAILED_PKGS[@]} -ne 0 ]; then
+    warn "Achtung: Folgende Pakete konnten nicht installiert werden:"
+    warn "${FAILED_PKGS[*]}"
+    warn "Details dazu findest du in: /var/log/radxa_install.log"
+else
+    ok "Alle Pakete wurden erfolgreich installiert!"
+fi
+
 echo ""
 warn "Neustart empfohlen: sudo reboot"
 echo ""
