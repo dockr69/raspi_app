@@ -517,7 +517,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="pane" id="pane-1">
         <div style="margin-bottom:24px">
           <div style="font-family:var(--mono);font-size:22px;font-weight:700">01 · <span style="color:var(--acc)">Netzwerk</span></div>
-          <div style="font-size:13px;color:var(--t2);margin-top:4px">Statische IP & Netzwerk konfigurieren</div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">DHCP ist aktiv — optional eine feste IP zusätzlich vergeben</div>
         </div>
 
         <div class="card">
@@ -525,13 +525,13 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 
           <!-- Beide IPs nebeneinander als Übersicht -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
-            <div style="background:var(--s3);border:1px solid var(--border2);border-radius:6px;padding:12px 14px">
-              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin-bottom:6px">Statische IP (du wählst)</div>
-              <div style="font-family:var(--mono);font-size:18px;color:var(--text)" id="net-preview-static">–.–.–.–</div>
-              <div style="font-size:11px;color:var(--t3);margin-top:2px">Primäre IP-Adresse</div>
+            <div style="background:var(--green-dim);border:1px solid rgba(0,230,118,.2);border-radius:6px;padding:12px 14px">
+              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:6px">DHCP (immer aktiv)</div>
+              <div style="font-family:var(--mono);font-size:18px;color:var(--text)">automatisch</div>
+              <div style="font-size:11px;color:var(--t3);margin-top:2px">IP vom Router/DHCP-Server</div>
             </div>
             <div style="background:var(--warn-dim);border:1px solid rgba(255,171,64,.2);border-radius:6px;padding:12px 14px">
-              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin-bottom:6px">Service-IP</div>
+              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);margin-bottom:6px">Service-IP (fest)</div>
               <div style="font-family:var(--mono);font-size:18px;color:var(--text)">10.0.0.10</div>
               <div style="font-size:11px;color:var(--t3);margin-top:2px">textspeicher.local</div>
             </div>
@@ -542,7 +542,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
             <div class="fwrap"><select id="net-iface"></select></div>
           </div>
           <div class="frow">
-            <div class="flabel">Statische IP *</div>
+            <div class="flabel">Statische IP</div>
             <div class="fwrap">
               <input type="text" id="net-ip" placeholder="z.B. 192.168.1.100" oninput="onNetInput()" autocomplete="off">
               <div class="fhint" id="net-ip-hint">z.B. 192.168.1.100</div>
@@ -553,7 +553,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
             <div class="fwrap"><input type="text" id="net-mask" value="255.255.255.0" oninput="onNetInput()" autocomplete="off"></div>
           </div>
           <div class="frow">
-            <div class="flabel">Gateway *</div>
+            <div class="flabel">Gateway</div>
             <div class="fwrap">
               <input type="text" id="net-gw" placeholder="z.B. 192.168.1.1" oninput="onNetInput()" autocomplete="off">
             </div>
@@ -566,6 +566,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="brow">
             <button class="btn btn-primary" id="btn-net-apply" onclick="applyNetwork()" disabled>✓ Anwenden</button>
             <button class="btn btn-ghost btn-sm" onclick="loadIfaces()">↺ Interfaces</button>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--t3);margin-left:auto">Optional — DHCP ist bereits aktiv</span>
           </div>
           <div class="spill" id="net-status"></div>
         </div>
@@ -578,7 +579,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="step-nav">
           <button class="btn btn-ghost" onclick="goPrevFrom(1)">← Zurück</button>
           <div class="step-prog" id="step-prog-1">Schritt 2 von 5</div>
-          <button class="btn btn-primary" id="btn-net-next" onclick="goNextFrom(1)" disabled>Weiter →</button>
+          <button class="btn btn-primary" id="btn-net-next" onclick="goNextFrom(1)">Weiter →</button>
         </div>
       </div>
 
@@ -841,7 +842,7 @@ function updateStepsOverview() {
         {n:'03', t:'GPIO',   d:'Taster zuweisen'},
       ]
     : [
-        {n:'01', t:'Netzwerk', d:'Statische IP konfigurieren'},
+        {n:'01', t:'Netzwerk', d:'DHCP aktiv — optional feste IP'},
         {n:'02', t:'Audio',    d:'Line-In Quelle & Passthrough'},
         {n:'03', t:'Sounds',   d:'MP3 hochladen & konvertieren'},
         {n:'04', t:'GPIO',     d:'Taster zuweisen (optional)'},
@@ -869,12 +870,19 @@ function openDashboard() {
   document.getElementById('view-status').classList.add('active');
   loadDashboard();
 }
-function openWizard() {
+async function openWizard() {
   document.getElementById('view-status').classList.remove('active');
   document.getElementById('view-wizard').style.display = 'flex';
   document.getElementById('btn-to-dashboard').style.display = 'inline-flex';
   buildSidebar();
   loadMp3s();
+  // Netzwerk-Status wiederherstellen
+  const st = await api('GET','/api/status');
+  const n = st.config?.network || {};
+  if(n.ip && ipRe.test(n.ip) && n.gateway) {
+    netOk = true;
+    document.getElementById('btn-net-next').disabled = false;
+  }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -890,19 +898,31 @@ async function loadDashboard() {
   modeChip.style.borderColor = isOffline ? 'rgba(179,157,255,.3)' : '';
   modeLabel.style.color = isOffline ? 'var(--purple)' : '';
 
-  // Im Offline-Modus: Static-IP-Chip ausblenden, Service-IP bleibt
-  document.getElementById('ds-chip-static').style.display = isOffline ? 'none' : '';
+  // Statische IP
+  const sip = st.static_ip || '';
+  const hasStaticIp = sip && sip !== '–';
+  const hideStatic = isOffline || !hasStaticIp;
 
-  // IP-Grid: im Offline nur Service-IP-Karte zeigen
+  // Im Offline-Modus oder ohne statische IP: Static-IP-Chip ausblenden
+  document.getElementById('ds-chip-static').style.display = hideStatic ? 'none' : '';
+
+  // IP-Grid: bei fehlender statischer IP nur Service-IP-Karte zeigen
   const staticIpCard = document.querySelector('.ip-card.static');
-  if (staticIpCard) staticIpCard.style.display = isOffline ? 'none' : '';
+  if (staticIpCard) {
+    staticIpCard.style.display = hideStatic ? 'none' : '';
+    // DHCP-Hinweis wenn keine statische IP
+    if (!hasStaticIp && !isOffline) {
+      staticIpCard.style.display = '';
+      document.getElementById('ds-static-ip').textContent = 'DHCP';
+      document.querySelector('.ip-card.static .ip-card-label').textContent = 'Netzwerk-IP';
+      document.querySelector('.ip-card.static .ip-card-badge').innerHTML = '✓ DHCP aktiv';
+    }
+  }
   const ipGrid = document.querySelector('.ip-grid');
   if (ipGrid) ipGrid.style.gridTemplateColumns = isOffline ? '1fr' : '1fr 1fr';
 
-  // Statische IP
-  const sip = st.static_ip || '–';
-  document.getElementById('ds-static-ip').textContent      = sip;
-  document.getElementById('ds-static-ip-chip').textContent = sip;
+  document.getElementById('ds-static-ip').textContent      = hasStaticIp ? sip : 'DHCP';
+  document.getElementById('ds-static-ip-chip').textContent = hasStaticIp ? sip : 'DHCP';
   document.getElementById('ds-static-iface').textContent   = `Interface: ${st.static_iface || '–'} · Gateway: ${st.config?.network?.gateway || '–'}`;
 
   // SSH
@@ -1006,7 +1026,9 @@ function goStep(i) {
 async function api(method, url, body) {
   const opts = {method, headers:{'Content-Type':'application/json'}};
   if (body !== undefined) opts.body = JSON.stringify(body);
-  return (await fetch(url, opts)).json();
+  const res = await fetch(url, opts);
+  if (res.status === 401) { window.location.href = '/login'; return {}; }
+  return res.json();
 }
 function pill(id, msg, type='info') {
   const el = document.getElementById(id);
@@ -1049,7 +1071,7 @@ async function applyNetwork() {
   pill('net-status','…Anwenden','info');
   const r = await api('POST','/api/network/apply', data);
   if (r.ok) {
-    pill('net-status',`✓ Statische IP: ${data.ip} · Service-IP: ${SERVICE_IP} · beide aktiv`,'ok');
+    pill('net-status',`✓ Statische IP: ${data.ip} · DHCP + Service-IP ${SERVICE_IP} bleiben aktiv`,'ok');
     netOk = true;
     document.getElementById('btn-net-next').disabled = false;
   } else {
@@ -1485,8 +1507,6 @@ async function init() {
       document.getElementById('btn-net-next').disabled=false;
       onNetInput();
     }
-    // Wenn Setup schon gemacht aber nochmal geöffnet: Zahnrad zeigen
-    document.getElementById('btn-to-dashboard').style.display='inline-flex';
   }
 }
 init();

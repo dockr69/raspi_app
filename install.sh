@@ -3,9 +3,11 @@
 #  Radxa ROCK 3A – Audio Konfigurator · install.sh (2026 Edition)
 #  · Flask Web-UI Port 80
 #  · Service-IP 10.0.0.10 permanent (3-fach abgesichert)
+#  · DHCP bleibt immer aktiv (parallel zur Service-IP)
 #  · Hostname: textspeicher  →  textspeicher.local (mDNS)
-#  · Chromium Kiosk-Fullscreen beim Boot
+#  · Chromium Kiosk-Fullscreen beim Boot (Screensaver deaktiviert)
 #  · SSH aktiviert (Port 22)
+#  · Standard-Login: pi / Gerade24632@
 #  · Logging: /var/log/radxa_install.log
 #  Als root ausführen: sudo bash install.sh
 # ═══════════════════════════════════════════════════════════════════
@@ -60,12 +62,13 @@ install_pkg() {
     fi
 }
 
-# Liste der benötigten Pakete (chromium statt chromium-browser)
+# Liste der benötigten Pakete (chromium statt chromium-browser fuer Radxa-Repos)
 PACKAGES=(
   "python3-pip" "python3-flask" "ffmpeg" "mpg123"
   "openssh-server" "avahi-daemon" "avahi-utils"
   "python3-gpiod" "x11-xserver-utils" "openbox"
   "lightdm" "lightdm-gtk-greeter" "chromium"
+  "xdotool" "unclutter"
 )
 
 log "Installiere Systempakete..."
@@ -75,10 +78,10 @@ done
 
 # FIX: Erstelle Symlink falls 'chromium' installiert wurde, aber 'chromium-browser' fehlt
 if [ -f /usr/bin/chromium ] && [ ! -f /usr/bin/chromium-browser ]; then
-    ln -s /usr/bin/chromium /usr/bin/chromium-browser
-    ok "Symlink für chromium-browser erstellt (Fix für Radxa Repo)."
+    ln -sf /usr/bin/chromium /usr/bin/chromium-browser
+    ok "Symlink fuer chromium-browser erstellt (Fix fuer Radxa Repo)."
 elif [ ! -f /usr/bin/chromium-browser ]; then
-    warn "Weder chromium noch chromium-browser gefunden. Kiosk-Modus könnte fehlschlagen."
+    warn "Weder chromium noch chromium-browser gefunden. Kiosk-Modus koennte fehlschlagen."
 fi
 
 log "Installiere Flask via pip3..."
@@ -87,7 +90,7 @@ if pip3 install flask --break-system-packages >> "$LOG_FILE" 2>&1; then
 elif pip3 install flask >> "$LOG_FILE" 2>&1; then
     ok "Flask via pip installiert."
 else
-    warn "Pip Installation fehlgeschlagen. Prüfe Log."
+    warn "Pip Installation fehlgeschlagen. Pruefe Log."
 fi
 
 # ── 2. App-Dateien ────────────────────────────────────────────────
@@ -135,18 +138,24 @@ cat > "/etc/avahi/services/radxa-audio.service" <<'EOF'
 </service-group>
 EOF
 systemctl restart avahi-daemon >> "$LOG_FILE" 2>&1 || true
-ok "mDNS: ${HOSTNAME_NEW}.local → Port 80"
+ok "mDNS: ${HOSTNAME_NEW}.local -> Port 80"
 
-# ── 6. Service-IP permanent ────────────────────────────────────────
-log "Setze Service-IP ${SERVICE_IP}..."
+# ── 6. Netzwerk: DHCP + Service-IP ────────────────────────────────
+log "Konfiguriere Netzwerk (DHCP + Service-IP ${SERVICE_IP})..."
 IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
-# Sofort setzen
+# Sofort Service-IP setzen
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
 
-# /etc/network/interfaces.d (persistent)
+# DHCP explizit konfigurieren + Service-IP persistent
+cat > "/etc/network/interfaces.d/${IFACE}" <<EOF
+# Radxa Audio Konfigurator — DHCP bleibt immer aktiv
+auto ${IFACE}
+iface ${IFACE} inet dhcp
+EOF
+
 cat > "/etc/network/interfaces.d/${IFACE}-service" <<EOF
 # Service-IP Radxa Audio — NICHT ENTFERNEN
 auto ${IFACE}:service
@@ -164,7 +173,7 @@ elif [ ! -f "$RC" ]; then
     "$MARKER" "$SERVICE_IP" "$IFACE" "$IFACE" > "$RC"
   chmod +x "$RC"
 fi
-ok "Service-IP ${SERVICE_IP} gesetzt (${IFACE}:service)"
+ok "Netzwerk: DHCP aktiv + Service-IP ${SERVICE_IP} (${IFACE}:service)"
 
 # ── 7. systemd: Web-Service ─────────────────────────────────────────
 log "Erstelle systemd-Service: ${WEB_SVC}..."
@@ -212,7 +221,56 @@ systemctl daemon-reload >> "$LOG_FILE" 2>&1
 systemctl enable "$GPIO_SVC" >> "$LOG_FILE" 2>&1 || true
 ok "GPIO-Service eingerichtet"
 
-# ── 9. Kiosk-Modus ─────────────────────────────────────────────────
+# ── 9. Screensaver / Idle-Schutz deaktivieren ──────────────────────
+log "Deaktiviere Screensaver, Blanking, DPMS, Suspend..."
+
+# X11 Blanking global deaktivieren
+mkdir -p /etc/X11/xorg.conf.d
+cat > /etc/X11/xorg.conf.d/10-no-blanking.conf <<'EOF'
+Section "ServerFlags"
+    Option "BlankTime"  "0"
+    Option "StandbyTime" "0"
+    Option "SuspendTime" "0"
+    Option "OffTime"     "0"
+    Option "DPMS"        "false"
+EndSection
+
+Section "ServerLayout"
+    Identifier "Default Layout"
+    Option "BlankTime"  "0"
+    Option "StandbyTime" "0"
+    Option "SuspendTime" "0"
+    Option "OffTime"     "0"
+EndSection
+EOF
+
+# systemd Sleep/Suspend/Hibernate komplett deaktivieren
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >> "$LOG_FILE" 2>&1 || true
+
+# Kernel-Parameter: Konsolen-Blanking deaktivieren (Armbian ROCK 3A)
+if [ -f /boot/armbianEnv.txt ]; then
+    grep -q "consoleblank=0" /boot/armbianEnv.txt || \
+      sed -i 's/^extraargs=.*/& consoleblank=0/' /boot/armbianEnv.txt 2>/dev/null || \
+      echo "extraargs=consoleblank=0" >> /boot/armbianEnv.txt
+elif [ -f /boot/cmdline.txt ]; then
+    grep -q "consoleblank=0" /boot/cmdline.txt || \
+      sed -i 's/$/ consoleblank=0/' /boot/cmdline.txt
+fi
+
+# LightDM: Greeter ausblenden (direkter Autologin)
+mkdir -p /etc/lightdm/lightdm.conf.d
+cat > /etc/lightdm/lightdm.conf.d/50-radxa-kiosk.conf <<EOF
+[Seat:*]
+autologin-user=${SUDO_USER:-rock}
+autologin-user-timeout=0
+user-session=openbox
+greeter-session=lightdm-gtk-greeter
+xserver-command=X -s 0 -dpms -nocursor
+EOF
+
+ok "Idle-Schutz deaktiviert (kein Screensaver, kein Standby, kein Blanking)"
+
+# ── 10. Kiosk-Modus ─────────────────────────────────────────────────
 log "Konfiguriere Chromium Kiosk-Modus..."
 KIOSK_USER="${SUDO_USER:-rock}"
 if [ -z "$KIOSK_USER" ] || ! id "$KIOSK_USER" &>/dev/null; then
@@ -229,18 +287,29 @@ if [ -f /etc/lightdm/lightdm.conf ]; then
   sed -i "s/^#\?autologin-user-timeout=.*/autologin-user-timeout=0/" /etc/lightdm/lightdm.conf
 fi
 
-# Openbox Autostart
+# Openbox Autostart — Screensaver/Blanking deaktiviert, Cursor versteckt
 mkdir -p "${KIOSK_HOME}/.config/openbox"
 cat > "${KIOSK_HOME}/.config/openbox/autostart" <<EOF
+# Screensaver, Blanking, DPMS komplett deaktivieren
 xset s off &
 xset s noblank &
 xset -dpms &
+xset s 0 0 &
+
+# Maus-Cursor nach 3 Sekunden Inaktivitaet verstecken
+unclutter -idle 3 -root &
+
+# Chromium Kiosk-Modus
 sleep 5
 chromium-browser --kiosk --no-first-run --noerrdialogs \
   --disable-infobars --disable-session-crashed-bubble \
   --disable-translate --disable-features=TranslateUI \
   --overscroll-history-navigation=0 \
   --check-for-update-interval=31536000 \
+  --disable-component-update \
+  --disable-background-networking \
+  --password-store=basic \
+  --disable-pinch \
   "${WEB_URL}" &
 EOF
 chown -R "${KIOSK_USER}:" "${KIOSK_HOME}/.config" >> "$LOG_FILE" 2>&1 || true
@@ -255,12 +324,17 @@ Wants=graphical.target
 [Service]
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=${KIOSK_HOME}/.Xauthority
+ExecStartPre=/bin/bash -c "xset s off; xset -dpms; xset s noblank"
 ExecStartPre=/bin/sleep 6
 ExecStart=/usr/bin/chromium-browser --kiosk --no-first-run --noerrdialogs \
   --disable-infobars --disable-session-crashed-bubble \
   --disable-translate --disable-features=TranslateUI \
   --overscroll-history-navigation=0 \
   --check-for-update-interval=31536000 \
+  --disable-component-update \
+  --disable-background-networking \
+  --password-store=basic \
+  --disable-pinch \
   ${WEB_URL}
 Restart=on-failure
 RestartSec=10
@@ -271,19 +345,24 @@ WantedBy=graphical.target
 EOF
 systemctl daemon-reload >> "$LOG_FILE" 2>&1
 systemctl enable "$KIOSK_SVC" >> "$LOG_FILE" 2>&1 || true
-ok "Kiosk konfiguriert für User: ${KIOSK_USER}"
+ok "Kiosk konfiguriert fuer User: ${KIOSK_USER}"
 
-# ── 10. Zusammenfassung ─────────────────────────────────────────────
+# ── 11. Zusammenfassung ─────────────────────────────────────────────
 DEVICE_IP=$(hostname -I | awk '{print $1}' || echo "Unbekannt")
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
-echo "  ║           Setup abgeschlossen ✓              ║"
+echo "  ║           Setup abgeschlossen                ║"
 echo "  ╠══════════════════════════════════════════════╣"
 printf  "  ║  Web-UI:      http://%-24s║\n" "${DEVICE_IP}"
 printf  "  ║  Service-IP:  http://%-24s║\n" "${SERVICE_IP}"
 printf  "  ║  mDNS:        http://%-24s║\n" "${HOSTNAME_NEW}.local"
-printf  "  ║  SSH:         ssh ${KIOSK_USER}@%-23s║\n" "${SERVICE_IP}"
+printf  "  ║  SSH:         ssh pi@%-23s║\n" "${SERVICE_IP}"
+echo "  ║  Login:       pi / Gerade24632@              ║"
 echo "  ║  Log-Datei:   /var/log/radxa_install.log     ║"
+echo "  ╠══════════════════════════════════════════════╣"
+echo "  ║  DHCP:        immer aktiv                    ║"
+echo "  ║  Screensaver: deaktiviert                    ║"
+echo "  ║  Standby:     deaktiviert                    ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 

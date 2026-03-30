@@ -24,6 +24,7 @@ GPIO_PINS       = [4, 17, 18, 22, 23, 24, 25, 27]
 
 SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
 DEFAULT_USERNAME = "pi"
+DEFAULT_PASSWORD = "Gerade24632@"
 
 os.makedirs(MP3_FOLDER, exist_ok=True)
 os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
@@ -78,16 +79,16 @@ def get_auth():
     cfg = load_cfg()
     auth = cfg.get("auth", {})
     if not auth.get("username") or not auth.get("password_hash"):
-        # Erstes Start: zufälliges Passwort generieren und in den Logs ausgeben
-        first_pw = secrets.token_urlsafe(12)
+        # Erstes Start: Standard-Passwort setzen
+        first_pw = DEFAULT_PASSWORD
         auth = {
             "username":      DEFAULT_USERNAME,
             "password_hash": generate_password_hash(first_pw),
         }
         cfg["auth"] = auth
         save_cfg(cfg)
-        print(f"[INIT] Erstes Start – Login: {DEFAULT_USERNAME} / Passwort: {first_pw}", flush=True)
-        print("[INIT] Passwort nach dem ersten Login unter Einstellungen (🔑) ändern.", flush=True)
+        print(f"[INIT] Erstes Start – Login: {DEFAULT_USERNAME} / {first_pw}", flush=True)
+        print("[INIT] Passwort kann unter Einstellungen geändert werden.", flush=True)
     return auth
 
 @app.before_request
@@ -275,6 +276,10 @@ _term_lock = threading.Lock()
 # Service-IP beim Start setzen
 ensure_service_ip()
 
+# Sleep/Suspend/Screensaver beim Start deaktivieren
+run("systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null")
+run("xset s off 2>/dev/null; xset -dpms 2>/dev/null; xset s noblank 2>/dev/null")
+
 # ── Trigger-Routen ────────────────────────────────────────────────────────────
 @app.route('/cgi-bin/index.cgi')
 def cgi_trigger():
@@ -368,11 +373,16 @@ def api_net_apply():
         prefix = 24
 
     cfg_text = (
-        f"# Radxa Audio Konfigurator\nauto {iface}\n"
-        f"iface {iface} inet static\n"
-        f"    address {ip}/{prefix}\n    gateway {gateway}\n"
-        f"    dns-nameservers {dns}\n\n"
-        f"# Service-IP — FEST\nauto {iface}:service\n"
+        f"# Radxa Audio Konfigurator\n"
+        f"# DHCP bleibt immer aktiv\n"
+        f"auto {iface}\n"
+        f"iface {iface} inet dhcp\n\n"
+        f"# Statische IP (zusätzlich zu DHCP)\n"
+        f"auto {iface}:1\n"
+        f"iface {iface}:1 inet static\n"
+        f"    address {ip}/{prefix}\n\n"
+        f"# Service-IP — FEST\n"
+        f"auto {iface}:service\n"
         f"iface {iface}:service inet static\n"
         f"    address {SERVICE_IP}/{SERVICE_MASK}\n"
     )
@@ -383,12 +393,18 @@ def api_net_apply():
     except PermissionError:
         errors.append("Root-Rechte fehlen für /etc/network")
 
-    run(f"ip addr add {ip}/{prefix} dev {iface} 2>/dev/null")
-    run(f"ip route add default via {gateway} dev {iface} 2>/dev/null")
+    # Statische IP als zusätzliche Adresse hinzufügen (DHCP bleibt aktiv)
+    run(f"ip addr add {ip}/{prefix} dev {iface} label {iface}:1 2>/dev/null")
     ensure_service_ip(iface)
 
     cfg = load_cfg()
-    cfg["network"] = d
+    cfg["network"] = {
+        "interface": iface,
+        "ip":        ip,
+        "mask":      mask,
+        "gateway":   gateway,
+        "dns":       dns,
+    }
     save_cfg(cfg)
     return jsonify({"ok": not errors, "errors": errors, "service_ip": SERVICE_IP})
 
@@ -424,9 +440,12 @@ def detect_cards():
                 in_profiles = False
             elif s.startswith(("Ports:", "Properties:", "Formats:")):
                 in_profiles = False
-            elif in_profiles and ":" in s:
-                pname = s.split(":")[0].strip()
-                if pname and not any(c.isspace() for c in pname):
+            elif in_profiles and ": " in s:
+                # Profile format: "output:analog-stereo: Description (sinks: ...)"
+                # Split on ": " to get full profile name before description
+                parts = s.split(": ", 1)
+                pname = parts[0].strip()
+                if pname:
                     cur["profiles"].append(pname)
     if cur and cur["name"]:
         cards.append(cur)
@@ -467,21 +486,30 @@ def api_audio_save():
         vol_in  = max(0, min(100, int(d.get("input_volume", 80))))
     except (TypeError, ValueError):
         return jsonify({"ok": False, "msg": "Ungültige Lautstärke"}), 400
+    src = d.get("source", "@DEFAULT_SOURCE@")
+    if not _valid_pa_name(src):
+        return jsonify({"ok": False, "msg": "Ungültige Quelle"}), 400
     cfg["audio"] = {
-        "source":       d.get("source", "@DEFAULT_SOURCE@"),
+        "source":       src,
         "volume":       vol_out,
         "input_volume": vol_in,
     }
     save_cfg(cfg)
-    src = cfg["audio"]["source"]
     run(f"pactl set-sink-volume @DEFAULT_SINK@ {vol_out}%")
     run(f"pactl set-source-volume '{src}' {vol_in}%")
     return jsonify({"ok": True})
 
+def _valid_pa_name(name):
+    """PulseAudio-Namen dürfen nur Wort-Zeichen, @, . : + - enthalten."""
+    return bool(name) and bool(re.match(r'^[\w@.:+\-]+$', name))
+
 @app.route('/api/audio/mute', methods=['POST'])
 def api_mute():
     d = request.json
-    run(f"pactl set-source-mute '{d.get('source','@DEFAULT_SOURCE@')}' "
+    src = d.get('source', '@DEFAULT_SOURCE@')
+    if not _valid_pa_name(src):
+        return jsonify({"ok": False, "msg": "Ungültige Quelle"}), 400
+    run(f"pactl set-source-mute '{src}' "
         f"{'1' if d.get('mute') else '0'}")
     return jsonify({"ok": True})
 
@@ -818,6 +846,7 @@ def api_terminal_exec():
         # cd separat behandeln, damit es persistent wirkt
         if re.match(r'^cd(\s|$)', cmd):
             target = cmd[2:].strip() or "/root"
+            target = target.replace("~", "/root")
             if not os.path.isabs(target):
                 target = os.path.normpath(os.path.join(cwd, target))
             if os.path.isdir(target):

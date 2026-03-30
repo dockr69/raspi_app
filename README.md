@@ -52,7 +52,7 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5
 |---|---|
 | **Online/Offline-Modus** | Online: HTTP + GPIO mit Netzwerk · Offline: nur GPIO, kein Router nötig |
 | **Einrichtungsassistent** | 5-Schritte-Wizard (Online) bzw. 4-Schritte-Wizard (Offline) |
-| **Netzwerk** | Statische IP-Konfiguration mit permanenter Service-IP `10.0.0.10` (Online-Modus) |
+| **Netzwerk** | DHCP immer aktiv + optionale statische IP + permanente Service-IP `10.0.0.10` |
 | **Audio** | Getrennte Lautstärkeregler für Ausgang (Line-Out) und Eingang (Line-In), automatisches Mute während Wiedergabe |
 | **Combo Jack** | 3,5-mm-TRRS-Konfiguration: Soundkarte & Profil wählen (z. B. Headset-Modus für Eingang + Ausgang) |
 | **Datei-Upload** | Beliebige Audioformate – ffmpeg konvertiert automatisch zu MP3 (bis zu 4 parallel) |
@@ -62,7 +62,7 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5
 | **Wiederholungen** | Pro Sound einstellbar: 1–10× Wiederholen (HTTP-Trigger, GPIO und Play-Button) |
 | **GPIO-Daemon** | Automatisch generiertes Python-Skript als systemd-Dienst |
 | **Status-Dashboard** | Übersicht über alle IPs, Sounds, Trigger-URLs und Systemstatus |
-| **Kiosk-Modus** | Chromium im Vollbild beim Booten (Openbox + LightDM) |
+| **Kiosk-Modus** | Chromium im Vollbild beim Booten (Openbox + LightDM), Screensaver/Sleep/DPMS deaktiviert |
 | **mDNS** | Erreichbar unter `textspeicher.local` im lokalen Netzwerk |
 | **SSH** | OpenSSH vorkonfiguriert für Remote-Zugriff |
 | **Authentifizierung** | Login-Seite mit Benutzername/Passwort, Session-basiert, Passwort jederzeit änderbar |
@@ -72,7 +72,8 @@ Der **Radxa Audio Konfigurator** verwandelt einen Radxa ROCK 3A, 3C, 4C+, 4SE, 5
 
 ## Systemanforderungen
 
-- **Betriebssystem**: Radxa Debian (Bullseye / Bookworm, arm64)
+- **Betriebssystem**: Armbian / Radxa Debian (Bullseye / Bookworm, arm64)
+- **Referenz-Board**: Radxa ROCK 3A (RK3568)
 - **Zugriff**: Root- oder sudo-Berechtigung
 - **Netzwerk**: Aktive Netzwerkverbindung während der Installation
 
@@ -115,7 +116,8 @@ Das Installationsskript führt folgende Schritte automatisch aus:
 | App-Deployment | Kopiert App nach `/opt/radxa_audio` |
 | SSH | Aktiviert Passwort-Authentifizierung |
 | Hostname | Setzt Hostname auf `textspeicher`, konfiguriert mDNS |
-| Service-IP | Richtet `10.0.0.10/24` als permanente IP ein (3-fache Absicherung) |
+| Netzwerk | DHCP konfiguriert + Service-IP `10.0.0.10/24` permanent (3-fach abgesichert) |
+| Idle-Schutz | Screensaver, DPMS, Sleep, Suspend, Hibernate deaktiviert |
 | systemd | Erstellt und aktiviert alle drei Dienste (Web, GPIO, Kiosk) |
 | Autologin | Konfiguriert LightDM und Openbox-Autostart für Kiosk-Modus |
 
@@ -136,11 +138,8 @@ sudo reboot
 | **Web-UI (statische IP)** | `http://<konfigurierte-IP>` |
 | **SSH** | `ssh pi@10.0.0.10` |
 
-> Die Web-UI ist passwortgeschützt. Beim ersten Start wird automatisch ein zufälliges Passwort generiert und in den Systemlogs ausgegeben:
-> ```bash
-> journalctl -u radxa-audio-web | grep Passwort
-> ```
-> Benutzername: **pi** · Passwort direkt nach dem ersten Login über den 🔑-Button ändern.
+> **Standard-Login:** Benutzer `pi` / Passwort `Gerade24632@`
+> Passwort kann jederzeit über den 🔑-Button in der Web-UI geändert werden.
 
 ---
 
@@ -207,9 +206,12 @@ Im Willkommens-Schritt des Assistenten wird der Betriebsmodus gewählt:
 
 ### Netzwerkkonfiguration
 
-- Konfiguriert eine statische IP-Adresse auf dem gewählten Netzwerk-Interface (nur im Online-Modus)
+- **DHCP ist immer aktiv** — das Gerät bekommt automatisch eine IP vom Router
+- **Optional** kann eine zusätzliche statische IP konfiguriert werden (als Alias, parallel zu DHCP)
 - Die Service-IP `10.0.0.10` ist fest eingerichtet und immer erreichbar
+- Drei IPs können parallel aktiv sein: DHCP-IP + statische IP + Service-IP
 - Validierung von IP-Adresse, Gateway und DNS direkt im Browser
+- Sleep, Suspend, Hibernate und Screensaver sind systemweit deaktiviert
 
 ### Audio-Konfiguration
 
@@ -506,7 +508,9 @@ flask>=2.3
 | `mpg123` | MP3-Wiedergabe |
 | `openssh-server` | SSH-Zugriff |
 | `avahi-daemon` | mDNS (`textspeicher.local`) |
-| `chromium-browser` | Kiosk-Modus |
+| `chromium` / `chromium-browser` | Kiosk-Modus (Symlink wird automatisch erstellt) |
+| `unclutter` | Maus-Cursor im Kiosk-Modus verstecken |
+| `xdotool` | X11-Hilfswerkzeug |
 | `openbox` | Leichtgewichtige Desktop-Umgebung |
 | `lightdm` | Display Manager mit Autologin |
 | `python3-flask` | Web-Framework |
