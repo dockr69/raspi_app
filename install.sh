@@ -150,6 +150,7 @@ IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
 
 # DHCP explizit konfigurieren + Service-IP persistent
+mkdir -p /etc/network/interfaces.d
 cat > "/etc/network/interfaces.d/${IFACE}" <<EOF
 # Radxa Audio Konfigurator — DHCP bleibt immer aktiv
 auto ${IFACE}
