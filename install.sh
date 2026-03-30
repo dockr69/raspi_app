@@ -66,7 +66,7 @@ install_pkg() {
 PACKAGES=(
   "python3-pip" "python3-flask" "ffmpeg" "mpg123"
   "openssh-server" "avahi-daemon" "avahi-utils"
-  "python3-gpiod" "x11-xserver-utils" "openbox"
+  "x11-xserver-utils" "openbox"
   "lightdm" "lightdm-gtk-greeter" "chromium"
   "xdotool" "unclutter"
 )
@@ -76,18 +76,17 @@ for p in "${PACKAGES[@]}"; do
     install_pkg "$p"
 done
 
-# FIX: python3-gpiod via pip falls apt fehlschlaegt
-if ! python3 -c "import gpiod" >> "$LOG_FILE" 2>&1; then
-    log "python3-gpiod nicht via apt verfuegbar, versuche pip3..."
-    if pip3 install gpiod --break-system-packages >> "$LOG_FILE" 2>&1; then
-        ok "gpiod via pip3 installiert."
-    elif pip3 install gpiod >> "$LOG_FILE" 2>&1; then
-        ok "gpiod via pip3 installiert."
-    else
-        warn "gpiod konnte weder via apt noch pip installiert werden. GPIO-Funktionen nicht verfuegbar."
-    fi
+# gpiod: erst apt versuchen, dann pip3 als Fallback
+log "Installiere gpiod (apt oder pip3)..."
+if DEBIAN_FRONTEND=noninteractive apt-get install -y python3-gpiod --no-install-recommends >> "$LOG_FILE" 2>&1; then
+    ok "python3-gpiod via apt installiert."
+elif pip3 install gpiod --break-system-packages >> "$LOG_FILE" 2>&1; then
+    ok "gpiod via pip3 (break-system-packages) installiert."
+elif pip3 install gpiod >> "$LOG_FILE" 2>&1; then
+    ok "gpiod via pip3 installiert."
 else
-    ok "gpiod bereits verfuegbar."
+    warn "gpiod konnte weder via apt noch pip installiert werden. GPIO-Funktionen nicht verfuegbar."
+    FAILED_PKGS+=("gpiod")
 fi
 
 # FIX: Erstelle Symlink falls 'chromium' installiert wurde, aber 'chromium-browser' fehlt
