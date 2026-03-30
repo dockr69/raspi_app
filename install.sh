@@ -76,6 +76,20 @@ for p in "${PACKAGES[@]}"; do
     install_pkg "$p"
 done
 
+# FIX: python3-gpiod via pip falls apt fehlschlaegt
+if ! python3 -c "import gpiod" >> "$LOG_FILE" 2>&1; then
+    log "python3-gpiod nicht via apt verfuegbar, versuche pip3..."
+    if pip3 install gpiod --break-system-packages >> "$LOG_FILE" 2>&1; then
+        ok "gpiod via pip3 installiert."
+    elif pip3 install gpiod >> "$LOG_FILE" 2>&1; then
+        ok "gpiod via pip3 installiert."
+    else
+        warn "gpiod konnte weder via apt noch pip installiert werden. GPIO-Funktionen nicht verfuegbar."
+    fi
+else
+    ok "gpiod bereits verfuegbar."
+fi
+
 # FIX: Erstelle Symlink falls 'chromium' installiert wurde, aber 'chromium-browser' fehlt
 if [ -f /usr/bin/chromium ] && [ ! -f /usr/bin/chromium-browser ]; then
     ln -sf /usr/bin/chromium /usr/bin/chromium-browser
@@ -168,7 +182,7 @@ EOF
 RC="/etc/rc.local"
 MARKER="# radxa-service-ip"
 if [ -f "$RC" ] && ! grep -q "$MARKER" "$RC"; then
-  sed -i "s|^exit 0|${MARKER}\nip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true\n\nexit 0|" "$RC"
+  sed -i "s@^exit 0@${MARKER}\nip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true\n\nexit 0@" "$RC"
 elif [ ! -f "$RC" ]; then
   printf '#!/bin/bash\n%s\nip addr add %s/24 dev %s label %s:service 2>/dev/null || true\nexit 0\n' \
     "$MARKER" "$SERVICE_IP" "$IFACE" "$IFACE" > "$RC"
