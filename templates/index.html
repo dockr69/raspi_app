@@ -174,6 +174,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 ══════════════════════════════════════════════ */
 #view-status{display:none;height:100vh;flex-direction:column;background:var(--bg)}
 #view-status.active{display:flex}
+#view-settings{display:none;height:100vh;flex-direction:column;background:var(--bg)}
+#view-settings.active{display:flex}
 .ds-topbar{height:52px;background:var(--s1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;flex-shrink:0}
 .ds-content{flex:1;overflow-y:auto;padding:28px 32px}
 
@@ -320,7 +322,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     <div class="tchip" id="ds-chip-service">Service: <b>10.0.0.10</b></div>
     <div class="tchip" id="ds-ssh-chip" style="display:none">SSH <b id="ds-ssh-val">–</b></div>
     <button class="tbtn" onclick="toggleTerminal()" title="Terminal">⌨</button>
-    <button class="tbtn" onclick="openWizard()" title="Einstellungen">⚙</button>
+    <button class="tbtn" onclick="openSettings()" title="Einstellungen">⚙</button>
     <button class="tbtn" onclick="openPwModal()" title="Passwort ändern">🔑</button>
     <a class="tbtn" href="/logout" title="Abmelden">⏻</a>
   </div>
@@ -443,7 +445,198 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 </div>
 
 <!-- ══════════════════════════════════════════
-     WIZARD
+     SETTINGS (nach Setup, ersetzt Wizard)
+══════════════════════════════════════════ -->
+<div id="view-settings">
+  <div class="ds-topbar">
+    <button class="tbtn" onclick="closeSettings()" title="Zurück zum Dashboard">←</button>
+    <div class="tlogo"><div class="tpulse"></div>EINSTELLUNGEN</div>
+    <div class="tsep"></div>
+    <button class="tbtn" onclick="toggleTerminal()" title="Terminal">⌨</button>
+    <button class="tbtn" onclick="openPwModal()" title="Passwort ändern">🔑</button>
+    <a class="tbtn" href="/logout" title="Abmelden">⏻</a>
+  </div>
+  <div class="ds-content">
+
+    <!-- Tab-Leiste -->
+    <div class="card" style="padding:0;margin-bottom:20px;overflow:hidden">
+      <div style="display:flex;gap:0">
+        <button class="ds-tab active" id="s-tab-network" onclick="settingsTab('network')">🌐 Netzwerk</button>
+        <button class="ds-tab" id="s-tab-audio" onclick="settingsTab('audio')">🎚 Audio</button>
+        <button class="ds-tab" id="s-tab-gpio" onclick="settingsTab('gpio')">🔌 GPIO</button>
+        <button class="ds-tab" id="s-tab-mode" onclick="settingsTab('mode')">⚡ Modus</button>
+      </div>
+    </div>
+
+    <!-- ── Tab: Netzwerk ── -->
+    <div id="s-pane-network">
+      <div class="card">
+        <div class="card-title">🌐 Netzwerk-Konfiguration</div>
+        <div class="frow">
+          <div class="flabel">Interface</div>
+          <div class="fwrap"><select id="s-net-iface"></select></div>
+        </div>
+        <div class="frow">
+          <div class="flabel">Statische IP</div>
+          <div class="fwrap">
+            <input type="text" id="s-net-ip" placeholder="z.B. 192.168.1.100" oninput="sNetInput()" autocomplete="off">
+          </div>
+        </div>
+        <div class="frow">
+          <div class="flabel">Subnetzmaske</div>
+          <div class="fwrap"><input type="text" id="s-net-mask" value="255.255.255.0" oninput="sNetInput()" autocomplete="off"></div>
+        </div>
+        <div class="frow">
+          <div class="flabel">Gateway</div>
+          <div class="fwrap">
+            <input type="text" id="s-net-gw" placeholder="z.B. 192.168.1.1" oninput="sNetInput()" autocomplete="off">
+          </div>
+        </div>
+        <div class="frow">
+          <div class="flabel">DNS</div>
+          <div class="fwrap"><input type="text" id="s-net-dns" value="8.8.8.8" oninput="sNetInput()" autocomplete="off"></div>
+        </div>
+        <div class="frow" style="margin-top:6px">
+          <div class="flabel">DHCP</div>
+          <div class="fwrap" style="display:flex;align-items:center;gap:10px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--t2)">
+              <input type="checkbox" id="s-net-keep-dhcp" checked style="accent-color:var(--acc);width:16px;height:16px">
+              DHCP aktiv lassen (parallel zur statischen IP)
+            </label>
+          </div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-primary" id="s-btn-net-apply" onclick="sApplyNetwork()" disabled>✓ Anwenden</button>
+          <button class="btn btn-ghost btn-sm" onclick="sLoadIfaces()">↺ Interfaces</button>
+          <button class="btn btn-ghost btn-sm" onclick="sPingTest()">📡 Ping</button>
+        </div>
+        <div class="spill" id="s-net-status"></div>
+      </div>
+      <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
+        <span style="color:var(--t3)">Service-IP:</span> <b style="color:var(--warn)">10.0.0.10</b> (fest, nicht änderbar)<br>
+        <span style="color:var(--t3)">mDNS:</span> <b style="color:var(--acc)">http://textspeicher.local</b><br>
+        <span style="color:var(--t3)">SSH:</span> <b style="color:var(--green)">ssh pi@10.0.0.10</b>
+      </div>
+    </div>
+
+    <!-- ── Tab: Audio ── -->
+    <div id="s-pane-audio" style="display:none">
+      <div class="card">
+        <div class="card-title">🎚 Line-In Quelle & Lautstärke</div>
+        <div class="frow">
+          <div class="flabel">Quelle</div>
+          <div class="fwrap">
+            <div style="display:flex;gap:7px">
+              <select id="s-audio-src" style="flex:1"></select>
+              <button class="btn btn-ghost btn-sm" onclick="sDetectSources()">↺</button>
+            </div>
+            <div class="fhint">PulseAudio/PipeWire Eingangsquelle</div>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="flabel">🔊 Ausgang</div>
+          <div class="fwrap" style="padding-top:5px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <input type="range" id="s-audio-vol" min="0" max="100" value="80"
+                     oninput="document.getElementById('s-vol-val').textContent=this.value+'%'" style="flex:1">
+              <span id="s-vol-val" style="font-family:var(--mono);font-size:12px;min-width:36px;color:var(--t2)">80%</span>
+            </div>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="flabel">🎙 Eingang</div>
+          <div class="fwrap" style="padding-top:5px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <input type="range" id="s-audio-vol-in" min="0" max="100" value="80"
+                     oninput="document.getElementById('s-vol-in-val').textContent=this.value+'%'" style="flex:1">
+              <span id="s-vol-in-val" style="font-family:var(--mono);font-size:12px;min-width:36px;color:var(--t2)">80%</span>
+            </div>
+          </div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-green btn-sm" onclick="sSaveAudio()">✓ Speichern</button>
+          <button class="btn btn-danger btn-sm" onclick="sDoMute(true)">🔇 Mute</button>
+          <button class="btn btn-ghost btn-sm" onclick="sDoMute(false)">🔈 Unmute</button>
+          <button class="btn btn-ghost btn-sm" onclick="sTestAudio()">▶ Test</button>
+        </div>
+        <div class="spill" id="s-audio-status"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🎧 Combo Jack / Headset (3,5 mm TRRS)</div>
+        <div style="font-size:12px;color:var(--t2);margin-bottom:14px">
+          Boards mit kombiniertem Headset-Anschluss (3A, 4C+, …) benötigen
+          das <b style="color:var(--text)">Headset-Profil</b>, damit der Eingang (Mikrofon/Line-In)
+          am 3,5-mm-Anschluss aktiv ist.
+        </div>
+        <div class="frow">
+          <div class="flabel">Soundkarte</div>
+          <div class="fwrap">
+            <div style="display:flex;gap:7px">
+              <select id="s-card-select" style="flex:1"></select>
+              <button class="btn btn-ghost btn-sm" onclick="sLoadCards()">↺</button>
+            </div>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="flabel">Profil</div>
+          <div class="fwrap">
+            <select id="s-profile-select" style="width:100%"></select>
+          </div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-green btn-sm" onclick="sApplyCardProfile()">✓ Profil setzen</button>
+        </div>
+        <div class="spill" id="s-card-status"></div>
+      </div>
+      <div class="card" style="padding:14px 18px;font-size:13px;color:var(--t2)">
+        Line-In → Line-Out läuft <b style="color:var(--text)">permanent</b>.
+        Beim Trigger: Line-In kurz stumm → Ton → Line-In wieder aktiv.
+      </div>
+    </div>
+
+    <!-- ── Tab: GPIO ── -->
+    <div id="s-pane-gpio" style="display:none">
+      <div class="card">
+        <div class="card-title">🔌 Pin-Mapping</div>
+        <div class="gpio-grid" id="s-gpio-grid"></div>
+        <div class="brow">
+          <button class="btn btn-green" onclick="sSaveGpio()">✓ Speichern</button>
+          <button class="btn btn-ghost btn-sm" onclick="sLoadGpio()">↺</button>
+        </div>
+        <div class="spill" id="s-gpio-status"></div>
+      </div>
+      <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
+        <b style="color:var(--text)">Wiring:</b> Taster zwischen GPIO-Pin und GND<br>
+        <b style="color:var(--text)">Pull-Up:</b> intern (PUD_UP) · <b style="color:var(--text)">Debounce:</b> 200 ms<br>
+        <span style="color:var(--t3)">Nur Sounds mit Trigger-Typ "GPIO" erscheinen hier.</span>
+      </div>
+    </div>
+
+    <!-- ── Tab: Modus ── -->
+    <div id="s-pane-mode" style="display:none">
+      <div class="card">
+        <div class="card-title">⚡ Betriebsmodus</div>
+        <div style="display:flex;gap:14px;margin-bottom:14px">
+          <div class="mode-card" id="s-mode-online" onclick="sSelectMode('online')" style="flex:1;cursor:pointer;padding:18px;border:2px solid var(--border2);border-radius:8px;text-align:center">
+            <div style="font-size:24px;margin-bottom:6px">🌐</div>
+            <div style="font-family:var(--mono);font-weight:700;font-size:14px">Online</div>
+            <div style="font-size:11px;color:var(--t2);margin-top:4px">HTTP-Trigger via WiFi-Buttons + GPIO</div>
+          </div>
+          <div class="mode-card" id="s-mode-offline" onclick="sSelectMode('offline')" style="flex:1;cursor:pointer;padding:18px;border:2px solid var(--border2);border-radius:8px;text-align:center">
+            <div style="font-size:24px;margin-bottom:6px">🔌</div>
+            <div style="font-family:var(--mono);font-weight:700;font-size:14px">Offline</div>
+            <div style="font-size:11px;color:var(--t2);margin-top:4px">Nur GPIO-Taster, kein Netzwerk nötig</div>
+          </div>
+        </div>
+        <div class="spill" id="s-mode-status"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     WIZARD (nur beim ersten Setup)
 ══════════════════════════════════════════ -->
 <div id="view-wizard" class="shell">
   <!-- Sidebar -->
@@ -464,7 +657,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     <header class="topbar">
       <div class="tlogo"><div class="tpulse"></div>AUDIO · WIZARD</div>
       <div class="tsep"></div>
-      <button class="tbtn" id="btn-to-dashboard" onclick="openDashboard()" style="display:none" title="Zum Status">←</button>
+      <!-- Wizard ist nur für Ersteinrichtung, kein Zurück-Button nötig -->
       <button class="tbtn" onclick="openPwModal()" title="Passwort ändern">🔑</button>
       <a class="tbtn" href="/logout" title="Abmelden">⏻</a>
     </header>
@@ -561,6 +754,16 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="frow">
             <div class="flabel">DNS</div>
             <div class="fwrap"><input type="text" id="net-dns" value="8.8.8.8" oninput="onNetInput()" autocomplete="off"></div>
+          </div>
+
+          <div class="frow" style="margin-top:6px">
+            <div class="flabel">DHCP</div>
+            <div class="fwrap" style="display:flex;align-items:center;gap:10px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--t2)">
+                <input type="checkbox" id="net-keep-dhcp" checked style="accent-color:var(--acc);width:16px;height:16px">
+                DHCP aktiv lassen (parallel zur statischen IP)
+              </label>
+            </div>
           </div>
 
           <div class="brow">
@@ -867,22 +1070,9 @@ function selectMode(mode) {
 // ── Views ──────────────────────────────────────────────────────────────────────
 function openDashboard() {
   document.getElementById('view-wizard').style.display  = 'none';
+  document.getElementById('view-settings').classList.remove('active');
   document.getElementById('view-status').classList.add('active');
   loadDashboard();
-}
-async function openWizard() {
-  document.getElementById('view-status').classList.remove('active');
-  document.getElementById('view-wizard').style.display = 'flex';
-  document.getElementById('btn-to-dashboard').style.display = 'inline-flex';
-  buildSidebar();
-  loadMp3s();
-  // Netzwerk-Status wiederherstellen
-  const st = await api('GET','/api/status');
-  const n = st.config?.network || {};
-  if(n.ip && ipRe.test(n.ip) && n.gateway) {
-    netOk = true;
-    document.getElementById('btn-net-next').disabled = false;
-  }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -960,7 +1150,7 @@ function renderSoundTable(mp3s, staticIp) {
   const body = document.getElementById('ds-sound-body');
   const isOffline = appMode === 'offline';
   if (!mp3s.length) {
-    body.innerHTML = '<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Keine Sounds — im Wizard hinzufügen</div>';
+    body.innerHTML = '<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Keine Sounds — oben per Upload hinzufügen</div>';
     return;
   }
   const httpBase = staticIp && staticIp !== '–' ? `http://${staticIp}` : `http://${SERVICE_IP}`;
@@ -1052,26 +1242,30 @@ async function loadIfaces() {
 function onNetInput() {
   const ip = document.getElementById('net-ip').value.trim();
   const gw = document.getElementById('net-gw').value.trim();
-  document.getElementById('net-preview-static').textContent = ipRe.test(ip) ? ip : '–.–.–.–';
+  const preview = document.getElementById('net-preview-static');
+  if(preview) preview.textContent = ipRe.test(ip) ? ip : '–.–.–.–';
   const ok = ipRe.test(ip) && ipRe.test(gw) && ip !== SERVICE_IP;
   document.getElementById('btn-net-apply').disabled = !ok;
   document.getElementById('net-ip').className = ip ? (ipRe.test(ip) && ip !== SERVICE_IP ? 'valid' : 'invalid') : '';
   document.getElementById('net-gw').className = gw ? (ipRe.test(gw) ? 'valid' : 'invalid') : '';
 }
 async function applyNetwork() {
+  const keepDhcp = document.getElementById('net-keep-dhcp').checked;
   const data = {
     interface: document.getElementById('net-iface').value,
     ip:   document.getElementById('net-ip').value.trim(),
     mask: document.getElementById('net-mask').value.trim(),
     gateway: document.getElementById('net-gw').value.trim(),
     dns:  document.getElementById('net-dns').value.trim(),
+    keep_dhcp: keepDhcp,
   };
   const v = await api('POST','/api/network/validate', data);
   if (!v.ok) { pill('net-status','✗ '+v.errors.join(' · '),'err'); return; }
   pill('net-status','…Anwenden','info');
   const r = await api('POST','/api/network/apply', data);
   if (r.ok) {
-    pill('net-status',`✓ Statische IP: ${data.ip} · DHCP + Service-IP ${SERVICE_IP} bleiben aktiv`,'ok');
+    const dhcpInfo = keepDhcp ? 'DHCP + ' : '';
+    pill('net-status',`✓ Statische IP: ${data.ip} · ${dhcpInfo}Service-IP ${SERVICE_IP} aktiv`,'ok');
     netOk = true;
     document.getElementById('btn-net-next').disabled = false;
   } else {
@@ -1473,6 +1667,202 @@ async function doDsUpload(files) {
   dsSwitchTab('sounds');
 }
 
+// ── Settings (nach Setup) ─────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('view-status').classList.remove('active');
+  document.getElementById('view-settings').classList.add('active');
+  loadSettingsData();
+  settingsTab('network');
+}
+function closeSettings() {
+  document.getElementById('view-settings').classList.remove('active');
+  document.getElementById('view-status').classList.add('active');
+  loadDashboard();
+}
+function settingsTab(tab) {
+  ['network','audio','gpio','mode'].forEach(t => {
+    const pane = document.getElementById(`s-pane-${t}`);
+    const btn  = document.getElementById(`s-tab-${t}`);
+    if(pane) pane.style.display = t===tab ? 'block' : 'none';
+    if(btn)  btn.className = 'ds-tab' + (t===tab ? ' active' : '');
+  });
+  if (tab === 'gpio') sLoadGpio();
+}
+async function loadSettingsData() {
+  const st = await api('GET','/api/status');
+  const n = st.config?.network || {};
+  const a = st.config?.audio || {};
+  // Netzwerk
+  if(n.ip) document.getElementById('s-net-ip').value = n.ip;
+  if(n.mask) document.getElementById('s-net-mask').value = n.mask;
+  if(n.gateway) document.getElementById('s-net-gw').value = n.gateway;
+  if(n.dns) document.getElementById('s-net-dns').value = n.dns;
+  if(n.keep_dhcp !== undefined) document.getElementById('s-net-keep-dhcp').checked = n.keep_dhcp;
+  // Audio
+  const volOut = a.volume ?? 80;
+  const volIn  = a.input_volume ?? 80;
+  document.getElementById('s-audio-vol').value = volOut;
+  document.getElementById('s-vol-val').textContent = volOut+'%';
+  document.getElementById('s-audio-vol-in').value = volIn;
+  document.getElementById('s-vol-in-val').textContent = volIn+'%';
+  // Modus
+  sUpdateModeCards(appMode);
+  // Dropdowns laden
+  await sLoadIfaces();
+  if(n.interface) document.getElementById('s-net-iface').value = n.interface;
+  await sDetectSources();
+  if(a.source) document.getElementById('s-audio-src').value = a.source;
+  await sLoadCards();
+  sNetInput();
+}
+
+// Settings: Netzwerk
+async function sLoadIfaces() {
+  const list = await api('GET','/api/network/interfaces');
+  const sel  = document.getElementById('s-net-iface');
+  sel.innerHTML = list.map(i=>`<option value="${i}">${i}</option>`).join('');
+}
+function sNetInput() {
+  const ip = document.getElementById('s-net-ip').value.trim();
+  const gw = document.getElementById('s-net-gw').value.trim();
+  const ok = ipRe.test(ip) && ipRe.test(gw) && ip !== SERVICE_IP;
+  document.getElementById('s-btn-net-apply').disabled = !ok;
+  document.getElementById('s-net-ip').className = ip ? (ipRe.test(ip) && ip !== SERVICE_IP ? 'valid' : 'invalid') : '';
+  document.getElementById('s-net-gw').className = gw ? (ipRe.test(gw) ? 'valid' : 'invalid') : '';
+}
+async function sApplyNetwork() {
+  const keepDhcp = document.getElementById('s-net-keep-dhcp').checked;
+  const data = {
+    interface: document.getElementById('s-net-iface').value,
+    ip:   document.getElementById('s-net-ip').value.trim(),
+    mask: document.getElementById('s-net-mask').value.trim(),
+    gateway: document.getElementById('s-net-gw').value.trim(),
+    dns:  document.getElementById('s-net-dns').value.trim(),
+    keep_dhcp: keepDhcp,
+  };
+  const v = await api('POST','/api/network/validate', data);
+  if (!v.ok) { pill('s-net-status','✗ '+v.errors.join(' · '),'err'); return; }
+  pill('s-net-status','…Anwenden','info');
+  const r = await api('POST','/api/network/apply', data);
+  if (r.ok) {
+    const dhcpInfo = keepDhcp ? 'DHCP + ' : '';
+    pill('s-net-status',`✓ Statische IP: ${data.ip} · ${dhcpInfo}Service-IP ${SERVICE_IP} aktiv`,'ok');
+  } else {
+    pill('s-net-status','✗ '+(r.errors||[]).join(', '),'err');
+  }
+}
+async function sPingTest() {
+  const gw = document.getElementById('s-net-gw').value.trim() || SERVICE_IP;
+  pill('s-net-status',`…Ping zu ${gw}`,'info');
+  const r = await api('POST','/api/network/ping',{target:gw});
+  pill('s-net-status', r.ok?`✓ ${gw} erreichbar`:`✗ kein Ping zu ${gw}`, r.ok?'ok':'err');
+}
+
+// Settings: Audio
+async function sDetectSources() {
+  const list = await api('GET','/api/audio/sources');
+  const sel  = document.getElementById('s-audio-src');
+  sel.innerHTML = list.map(s=>`<option value="${s}">${s}</option>`).join('');
+}
+async function sSaveAudio() {
+  await api('POST','/api/audio/save',{
+    source:       document.getElementById('s-audio-src').value,
+    volume:       parseInt(document.getElementById('s-audio-vol').value),
+    input_volume: parseInt(document.getElementById('s-audio-vol-in').value),
+  });
+  pill('s-audio-status','✓ Gespeichert','ok');
+}
+async function sDoMute(m) {
+  await api('POST','/api/audio/mute',{source:document.getElementById('s-audio-src').value,mute:m});
+  pill('s-audio-status',m?'🔇 Mute aktiv':'🔈 Unmute','ok');
+}
+async function sTestAudio() {
+  const r = await api('POST','/api/audio/test');
+  pill('s-audio-status',r.ok?`▶ ${r.playing}`:r.msg||'Fehler',r.ok?'info':'warn');
+}
+async function sLoadCards() {
+  const list = await api('GET', '/api/audio/cards');
+  const cSel = document.getElementById('s-card-select');
+  const pSel = document.getElementById('s-profile-select');
+  if (!list || !list.length) {
+    cSel.innerHTML = '<option value="">– keine Karten gefunden –</option>';
+    pSel.innerHTML = '';
+    return;
+  }
+  cSel.innerHTML = list.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+  sPopulateProfiles(list, list[0]);
+  cSel.onchange = () => {
+    const card = list.find(c => c.name === cSel.value);
+    if (card) sPopulateProfiles(list, card);
+  };
+}
+function sPopulateProfiles(list, card) {
+  const pSel = document.getElementById('s-profile-select');
+  pSel.innerHTML = card.profiles.map(p => {
+    const isHeadset = p.includes('headset');
+    return `<option value="${p}" ${isHeadset ? 'style="font-weight:700;color:var(--acc)"' : ''}>${p}${isHeadset ? ' ★' : ''}</option>`;
+  }).join('');
+  const headset = card.profiles.find(p => p.includes('headset'));
+  const active  = card.active_profile;
+  if (active && card.profiles.includes(active)) pSel.value = active;
+  else if (headset) pSel.value = headset;
+}
+async function sApplyCardProfile() {
+  const card    = document.getElementById('s-card-select').value;
+  const profile = document.getElementById('s-profile-select').value;
+  if (!card || !profile) { pill('s-card-status','Karte/Profil wählen','warn'); return; }
+  pill('s-card-status','…Setze Profil','info');
+  const r = await api('POST', '/api/audio/card-profile', { card, profile });
+  pill('s-card-status', r.ok ? `✓ ${profile}` : '✗ ' + (r.msg || 'Fehler'), r.ok ? 'ok' : 'err');
+}
+
+// Settings: GPIO
+async function sLoadGpio() {
+  if(!mp3List.length) mp3List=await api('GET','/api/mp3s');
+  const cfg=await api('GET','/api/status');
+  const sounds = cfg.config?.sounds || {};
+  const mapping = {};
+  for (const [stem, sc] of Object.entries(sounds)) {
+    if (sc.trigger_type === 'gpio' && sc.gpio_pin != null) mapping[sc.gpio_pin] = stem;
+  }
+  const gpioSounds=mp3List.filter(f=>f.trigger_type==='gpio');
+  const opts=['— keiner —',...gpioSounds.map(f=>f.stem)];
+  const grid = document.getElementById('s-gpio-grid');
+  if(!gpioSounds.length){
+    grid.innerHTML='<div style="color:var(--t3);font-size:13px;padding:8px">Keine Sounds mit Trigger-Typ "GPIO" — erst bei Sounds den Trigger-Typ ändern.</div>';
+    return;
+  }
+  grid.innerHTML=GPIO_PINS.map(pin=>`
+    <div class="gpio-row">
+      <span class="gpio-pin">GPIO ${pin}</span>
+      <select id="s-gpio-${pin}">
+        ${opts.map(o=>`<option value="${o}"${(mapping[pin]||'— keiner —')===o?' selected':''}>${o}</option>`).join('')}
+      </select>
+    </div>`).join('');
+}
+async function sSaveGpio() {
+  const gpio={};
+  GPIO_PINS.forEach(p=>{const v=document.getElementById(`s-gpio-${p}`)?.value;if(v&&v!=='— keiner —')gpio[p]=v;});
+  await api('POST','/api/gpio/save',{gpio});
+  pill('s-gpio-status',`✓ ${Object.keys(gpio).length} Mapping(s) gespeichert`,'ok');
+}
+
+// Settings: Modus
+function sUpdateModeCards(mode) {
+  const online  = document.getElementById('s-mode-online');
+  const offline = document.getElementById('s-mode-offline');
+  online.style.borderColor  = mode==='online'  ? 'var(--acc)' : 'var(--border2)';
+  online.style.background   = mode==='online'  ? 'var(--acc-dim)' : '';
+  offline.style.borderColor = mode==='offline' ? 'var(--purple)' : 'var(--border2)';
+  offline.style.background  = mode==='offline' ? 'var(--purple-dim)' : '';
+}
+async function sSelectMode(mode) {
+  appMode = mode;
+  sUpdateModeCards(mode);
+  await api('POST', '/api/mode', {mode});
+  pill('s-mode-status', mode==='online' ? '✓ Online-Modus aktiv' : '✓ Offline-Modus aktiv (nur GPIO)', 'ok');
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   const st=await api('GET','/api/status');
@@ -1492,11 +1882,12 @@ async function init() {
     await loadCards();
     // Gespeicherte Config laden
     const n=st.config?.network||{},a=st.config?.audio||{};
-    if(n.ip){document.getElementById('net-ip').value=n.ip;document.getElementById('net-preview-static').textContent=n.ip;}
+    if(n.ip){document.getElementById('net-ip').value=n.ip;const nps=document.getElementById('net-preview-static');if(nps)nps.textContent=n.ip;}
     if(n.mask) document.getElementById('net-mask').value=n.mask;
     if(n.gateway) document.getElementById('net-gw').value=n.gateway;
     if(n.dns) document.getElementById('net-dns').value=n.dns;
     if(n.interface) document.getElementById('net-iface').value=n.interface;
+    if(n.keep_dhcp !== undefined) document.getElementById('net-keep-dhcp').checked=n.keep_dhcp;
     if(a.source) document.getElementById('audio-src').value=a.source;
     if(a.volume){document.getElementById('audio-vol').value=a.volume;document.getElementById('vol-val').textContent=a.volume+'%';}
     const vin=a.input_volume??80;

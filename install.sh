@@ -159,16 +159,16 @@ IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
-# Sofort Service-IP setzen
+# Sofort Service-IP setzen (DHCP bleibt unangetastet)
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
 
-# DHCP explizit konfigurieren + Service-IP persistent
+# Nur Service-IP persistent machen — DHCP NICHT anfassen!
+# DHCP läuft bereits via NetworkManager/systemd-networkd, eine erneute
+# Deklaration in interfaces.d würde die bestehende Lease zerstören.
 mkdir -p /etc/network/interfaces.d
-cat > "/etc/network/interfaces.d/${IFACE}" <<EOF
-# Radxa Audio Konfigurator — DHCP bleibt immer aktiv
-auto ${IFACE}
-iface ${IFACE} inet dhcp
-EOF
+
+# Alte DHCP-Interface-Config entfernen falls vorhanden (von früheren Installationen)
+rm -f "/etc/network/interfaces.d/${IFACE}"
 
 cat > "/etc/network/interfaces.d/${IFACE}-service" <<EOF
 # Service-IP Radxa Audio — NICHT ENTFERNEN

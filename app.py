@@ -9,7 +9,7 @@ Radxa ROCK 3A – Audio Konfigurator
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
-import subprocess, os, json, threading, re, secrets
+import subprocess, os, json, threading, re, secrets, shlex
 
 app = Flask(__name__)
 
@@ -237,10 +237,10 @@ _play_lock = threading.Lock()
 def _play_thread(path, source, repeat=1):
     repeat = max(1, min(10, int(repeat)))
     with _play_lock:
-        run(f"pactl set-source-mute '{source}' 1")
+        run(f"pactl set-source-mute {shlex.quote(source)} 1")
         for _ in range(repeat):
-            run(f"mpg123 -q '{path}'", timeout=300)
-        run(f"pactl set-source-mute '{source}' 0")
+            run(f"mpg123 -q {shlex.quote(path)}", timeout=300)
+        run(f"pactl set-source-mute {shlex.quote(source)} 0")
 
 def trigger_play(name):
     """Zentraler Play-Einstiegspunkt. Gibt (ok, msg) zurück."""
@@ -355,12 +355,14 @@ def api_net_validate():
 
 @app.route('/api/network/apply', methods=['POST'])
 def api_net_apply():
-    d       = request.json
-    iface   = d.get("interface", "eth0")
-    ip      = d.get("ip", "")
-    mask    = d.get("mask", "255.255.255.0")
-    gateway = d.get("gateway", "")
-    dns     = d.get("dns", "8.8.8.8")
+    d         = request.json
+    iface     = d.get("interface", "eth0")
+    ip        = d.get("ip", "")
+    mask      = d.get("mask", "255.255.255.0")
+    gateway   = d.get("gateway", "")
+    dns       = d.get("dns", "8.8.8.8")
+    keep_dhcp = d.get("keep_dhcp", False)   # True = DHCP parallel aktiv lassen
+
     # Interface-Name absichern (Dateiname + Shell-Argument)
     if not re.match(r'^[a-zA-Z0-9_:-]+$', iface):
         return jsonify({"ok": False, "errors": ["Ungültiges Interface"]}), 400
@@ -372,31 +374,76 @@ def api_net_apply():
     except Exception:
         prefix = 24
 
-    cfg_text = (
-        f"# Radxa Audio Konfigurator\n"
-        f"# DHCP bleibt immer aktiv\n"
-        f"auto {iface}\n"
-        f"iface {iface} inet dhcp\n\n"
-        f"# Statische IP (zusätzlich zu DHCP)\n"
-        f"auto {iface}:1\n"
-        f"iface {iface}:1 inet static\n"
-        f"    address {ip}/{prefix}\n\n"
-        f"# Service-IP — FEST\n"
-        f"auto {iface}:service\n"
-        f"iface {iface}:service inet static\n"
-        f"    address {SERVICE_IP}/{SERVICE_MASK}\n"
-    )
     errors = []
+
+    # ── interfaces.d Config aufbauen ──────────────────────────────────
     try:
-        with open(f"/etc/network/interfaces.d/{iface}", "w") as f:
-            f.write(cfg_text)
+        iface_dir = "/etc/network/interfaces.d"
+
+        # Alte Configs entfernen (clean slate)
+        for suffix in ("", "-static", "-service"):
+            old = os.path.join(iface_dir, f"{iface}{suffix}")
+            if os.path.exists(old):
+                os.remove(old)
+
+        # Haupt-Interface: statisch ODER DHCP
+        if keep_dhcp:
+            # DHCP bleibt aktiv, statische IP als Alias dazu
+            cfg_main = (
+                f"# Radxa Audio — DHCP aktiv + statische IP\n"
+                f"auto {iface}\n"
+                f"iface {iface} inet dhcp\n\n"
+                f"auto {iface}:1\n"
+                f"iface {iface}:1 inet static\n"
+                f"    address {ip}/{prefix}\n"
+            )
+        else:
+            # Kein DHCP — nur statische IP
+            cfg_main = (
+                f"# Radxa Audio — statische IP (kein DHCP)\n"
+                f"auto {iface}\n"
+                f"iface {iface} inet static\n"
+                f"    address {ip}/{prefix}\n"
+                f"    gateway {gateway}\n"
+                f"    dns-nameservers {dns}\n"
+            )
+
+        with open(os.path.join(iface_dir, f"{iface}-static"), "w") as f:
+            f.write(cfg_main)
+
+        # Service-IP immer als Alias
+        cfg_service = (
+            f"# Service-IP Radxa Audio — NICHT ENTFERNEN\n"
+            f"auto {iface}:service\n"
+            f"iface {iface}:service inet static\n"
+            f"    address {SERVICE_IP}/{SERVICE_MASK}\n"
+        )
+        with open(os.path.join(iface_dir, f"{iface}-service"), "w") as f:
+            f.write(cfg_service)
+
     except PermissionError:
         errors.append("Root-Rechte fehlen für /etc/network")
 
-    # Statische IP als zusätzliche Adresse hinzufügen (DHCP bleibt aktiv)
-    run(f"ip addr add {ip}/{prefix} dev {iface} label {iface}:1 2>/dev/null")
+    # ── Sofort anwenden ───────────────────────────────────────────────
+    if keep_dhcp:
+        # Statische IP als Alias hinzufügen, DHCP nicht anfassen
+        run(f"ip addr add {ip}/{prefix} dev {iface} label {iface}:1 2>/dev/null")
+    else:
+        # DHCP stoppen, statische IP als Primäradresse setzen
+        run(f"dhclient -r {shlex.quote(iface)} 2>/dev/null")           # dhclient release
+        run(f"ip addr flush dev {shlex.quote(iface)} 2>/dev/null")     # alte IPs entfernen
+        run(f"ip addr add {ip}/{prefix} dev {shlex.quote(iface)} 2>/dev/null")
+        run(f"ip route add default via {gateway} dev {shlex.quote(iface)} 2>/dev/null")
+        # DNS setzen
+        try:
+            with open("/etc/resolv.conf", "w") as f:
+                f.write(f"nameserver {dns}\n")
+        except Exception:
+            errors.append("DNS konnte nicht gesetzt werden")
+
     ensure_service_ip(iface)
 
+    # ── Config speichern ──────────────────────────────────────────────
     cfg = load_cfg()
     cfg["network"] = {
         "interface": iface,
@@ -404,6 +451,7 @@ def api_net_apply():
         "mask":      mask,
         "gateway":   gateway,
         "dns":       dns,
+        "keep_dhcp": keep_dhcp,
     }
     save_cfg(cfg)
     return jsonify({"ok": not errors, "errors": errors, "service_ip": SERVICE_IP})
@@ -463,7 +511,7 @@ def api_card_profile():
     # Validate: no shell special chars
     if not re.match(r'^[\w@.:+-]+$', card) or not re.match(r'^[\w@.:+/-]+$', profile):
         return jsonify({"ok": False, "msg": "Ungültiger Wert"}), 400
-    r = run(f"pactl set-card-profile '{card}' '{profile}'")
+    r = run(f"pactl set-card-profile {shlex.quote(card)} {shlex.quote(profile)}")
     return jsonify({"ok": r["ok"], "msg": r["err"] if not r["ok"] else "Profil gesetzt"})
 
 @app.route('/api/audio/sources')
@@ -496,7 +544,7 @@ def api_audio_save():
     }
     save_cfg(cfg)
     run(f"pactl set-sink-volume @DEFAULT_SINK@ {vol_out}%")
-    run(f"pactl set-source-volume '{src}' {vol_in}%")
+    run(f"pactl set-source-volume {shlex.quote(src)} {vol_in}%")
     return jsonify({"ok": True})
 
 def _valid_pa_name(name):
@@ -509,7 +557,7 @@ def api_mute():
     src = d.get('source', '@DEFAULT_SOURCE@')
     if not _valid_pa_name(src):
         return jsonify({"ok": False, "msg": "Ungültige Quelle"}), 400
-    run(f"pactl set-source-mute '{src}' "
+    run(f"pactl set-source-mute {shlex.quote(src)} "
         f"{'1' if d.get('mute') else '0'}")
     return jsonify({"ok": True})
 
@@ -655,8 +703,8 @@ def api_upload():
 
     # 2. Parallel konvertieren — max. 4 ffmpeg-Prozesse gleichzeitig
     def convert(job):
-        cmd = (f"ffmpeg -y -i '{job['tmp']}' "
-               f"-ar 44100 -ac 1 -b:a 128k '{job['out_path']}' 2>&1")
+        cmd = (f"ffmpeg -y -i {shlex.quote(job['tmp'])} "
+               f"-ar 44100 -ac 1 -b:a 128k {shlex.quote(job['out_path'])} 2>&1")
         r = run(cmd, timeout=120)
         try: os.remove(job["tmp"])
         except Exception: pass
