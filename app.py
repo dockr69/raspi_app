@@ -20,7 +20,58 @@ HOSTNAME        = "textspeicher"
 CONFIG_FILE     = "/etc/radxa_audio/config.json"
 MP3_FOLDER      = "/etc/radxa_audio/sounds"
 SETUP_DONE_FILE = "/etc/radxa_audio/.setup_done"
-GPIO_PINS       = [4, 17, 18, 22, 23, 24, 25, 27]
+BOARD_FILE      = "/etc/radxa_audio/board.json"
+
+# ── Board-Erkennung (gesetzt vom install.sh oder automatisch erkannt) ────────
+def _load_board_info():
+    """Liest Board-Info aus board.json oder erkennt automatisch."""
+    defaults = {
+        "board": "generic",
+        "board_name": "Unbekannt",
+        "gpiochip": "/dev/gpiochip0",
+        "gpio_pins": [4, 17, 18, 22, 23, 24, 25, 27],
+        "default_user": "pi",
+    }
+    try:
+        with open(BOARD_FILE) as f:
+            info = json.load(f)
+            # Merge mit defaults
+            for k, v in defaults.items():
+                if k not in info:
+                    info[k] = v
+            return info
+    except Exception:
+        pass
+    # Fallback: automatische Erkennung
+    try:
+        with open("/proc/device-tree/model") as f:
+            model = f.read().strip("\x00").strip()
+        if "raspberry" in model.lower():
+            if "pi 4" in model.lower():
+                defaults["board"] = "rpi4"
+                defaults["board_name"] = "Raspberry Pi 4"
+            elif "pi 3" in model.lower():
+                defaults["board"] = "rpi3"
+                defaults["board_name"] = "Raspberry Pi 3B"
+            else:
+                defaults["board"] = "rpi"
+                defaults["board_name"] = model
+        elif "rock" in model.lower() or "radxa" in model.lower():
+            defaults["board"] = "rock3a"
+            defaults["board_name"] = model
+        else:
+            defaults["board_name"] = model
+    except Exception:
+        pass
+    # GPIO-Chip: RPi 5 nutzt gpiochip4
+    if os.path.exists("/dev/gpiochip4") and "rpi" in defaults["board"]:
+        defaults["gpiochip"] = "/dev/gpiochip4"
+    return defaults
+
+BOARD_INFO = _load_board_info()
+GPIO_PINS  = BOARD_INFO["gpio_pins"]
+GPIOCHIP   = BOARD_INFO["gpiochip"]
+print(f"[BOARD] {BOARD_INFO['board_name']} | GPIO: {GPIOCHIP} | Pins: {GPIO_PINS}", flush=True)
 
 SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
 DEFAULT_USERNAME = "pi"
@@ -315,6 +366,8 @@ def api_status():
     net = cfg.get("network", {})
     # SSH-Status
     ssh = run("systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null")
+    # USB-Soundkarten erkennen
+    usb_audio = run("lsusb 2>/dev/null | grep -i audio")
     return jsonify({
         "setup_done":    is_setup_done(),
         "service_ip":    SERVICE_IP,
@@ -326,6 +379,9 @@ def api_status():
         "ssh_active":    "active" in ssh["out"],
         "mode":          cfg.get("mode", "online"),
         "config":        cfg,
+        "board":         BOARD_INFO,
+        "usb_audio":     bool(usb_audio["ok"] and usb_audio["out"]),
+        "gpio_pins":     GPIO_PINS,
     })
 
 # ── API: Netzwerk ─────────────────────────────────────────────────────────────
@@ -790,7 +846,7 @@ import subprocess, time, os, sys, threading
 MP3_FOLDER  = {repr(str(MP3_FOLDER))}
 LINE_SOURCE = {repr(src)}
 GPIO_MAP    = {repr(gpio_map)}
-CHIP        = '/dev/gpiochip0'
+CHIP        = {repr(GPIOCHIP)}
 DEBOUNCE    = 0.2
 
 def play(entry):

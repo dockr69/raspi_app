@@ -374,6 +374,20 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="ds-tile-val green">aktiv · Port 80</div>
         </div>
       </div>
+      <div class="ds-tile">
+        <div class="ds-tile-icon">🔧</div>
+        <div>
+          <div class="ds-tile-label">Board</div>
+          <div class="ds-tile-val" id="ds-board-name" style="font-size:12px">–</div>
+        </div>
+      </div>
+      <div class="ds-tile" id="ds-usb-audio-tile" style="display:none">
+        <div class="ds-tile-icon">🎧</div>
+        <div>
+          <div class="ds-tile-label">USB Audio</div>
+          <div class="ds-tile-val green">erkannt</div>
+        </div>
+      </div>
     </div>
 
     <!-- Lautstärke-Karte -->
@@ -1000,7 +1014,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 
 <script>
 const SERVICE_IP = "10.0.0.10";
-const GPIO_PINS  = [4,17,18,22,23,24,25,27];
+let GPIO_PINS  = [4,17,18,22,23,24,25,27]; // wird von /api/status überschrieben
 const ALL_STEPS = [
   {label:"Willkommen", desc:"Modus wählen",     pane:0},
   {label:"Netzwerk",   desc:"IP-Konfiguration",  pane:1},
@@ -1137,6 +1151,18 @@ async function loadDashboard() {
   document.getElementById('ds-vol-out-val').textContent = volOut + '%';
   document.getElementById('ds-vol-in').value = volIn;
   document.getElementById('ds-vol-in-val').textContent = volIn + '%';
+
+  // Board-Info
+  if (st.board) {
+    document.getElementById('ds-board-name').textContent = st.board.board_name || '–';
+  }
+  if (st.usb_audio) {
+    document.getElementById('ds-usb-audio-tile').style.display = '';
+  }
+  // GPIO-Pins vom Server übernehmen
+  if (st.gpio_pins && st.gpio_pins.length) {
+    GPIO_PINS = st.gpio_pins;
+  }
 
   // MP3-Count
   const mp3s = await api('GET', '/api/mp3s');
@@ -1692,6 +1718,8 @@ async function loadSettingsData() {
   const st = await api('GET','/api/status');
   const n = st.config?.network || {};
   const a = st.config?.audio || {};
+  // GPIO-Pins vom Server
+  if (st.gpio_pins && st.gpio_pins.length) GPIO_PINS = st.gpio_pins;
   // Netzwerk
   if(n.ip) document.getElementById('s-net-ip').value = n.ip;
   if(n.mask) document.getElementById('s-net-mask').value = n.mask;
@@ -1867,6 +1895,8 @@ async function sSelectMode(mode) {
 async function init() {
   const st=await api('GET','/api/status');
   appMode = st.mode || 'online';
+  // GPIO-Pins vom Server übernehmen
+  if (st.gpio_pins && st.gpio_pins.length) GPIO_PINS = st.gpio_pins;
 
   if(st.setup_done){
     openDashboard();

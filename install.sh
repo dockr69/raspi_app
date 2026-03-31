@@ -1,6 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  Radxa ROCK 3A – Audio Konfigurator · install.sh (2026 Edition)
+#  Audio Konfigurator · install.sh
+#  Unterstützte Boards: Radxa ROCK 3A, Raspberry Pi 3B/4, generisch
 #  · Flask Web-UI Port 80
 #  · Service-IP 10.0.0.10 permanent (3-fach abgesichert)
 #  · DHCP bleibt immer aktiv (parallel zur Service-IP)
@@ -8,6 +9,7 @@
 #  · Chromium Kiosk-Fullscreen beim Boot (Screensaver deaktiviert)
 #  · SSH aktiviert (Port 22)
 #  · Standard-Login: pi / Gerade24632@
+#  · USB-Soundkarten werden automatisch erkannt
 #  · Logging: /var/log/radxa_install.log
 #  Als root ausführen: sudo bash install.sh
 # ═══════════════════════════════════════════════════════════════════
@@ -37,11 +39,77 @@ err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*" | tee -a "$LOG_FILE"; exit 1; }
 
 [ "$EUID" -ne 0 ] && err "Bitte als root ausführen: sudo bash install.sh"
 
+# ── 0. Board-Erkennung ──────────────────────────────────────────────
+detect_board() {
+  local model=""
+  if [ -f /proc/device-tree/model ]; then
+    model=$(tr -d '\0' < /proc/device-tree/model)
+  elif [ -f /sys/firmware/devicetree/base/model ]; then
+    model=$(tr -d '\0' < /sys/firmware/devicetree/base/model)
+  fi
+
+  if echo "$model" | grep -qi "raspberry.*pi.*4"; then
+    BOARD="rpi4"; BOARD_NAME="Raspberry Pi 4"
+  elif echo "$model" | grep -qi "raspberry.*pi.*3"; then
+    BOARD="rpi3"; BOARD_NAME="Raspberry Pi 3B"
+  elif echo "$model" | grep -qi "raspberry.*pi"; then
+    BOARD="rpi"; BOARD_NAME="Raspberry Pi (unbekannt)"
+  elif echo "$model" | grep -qi "rock.*3"; then
+    BOARD="rock3a"; BOARD_NAME="Radxa ROCK 3A"
+  elif echo "$model" | grep -qi "radxa\|rock"; then
+    BOARD="radxa"; BOARD_NAME="Radxa (unbekannt)"
+  else
+    BOARD="generic"; BOARD_NAME="${model:-Unbekanntes Board}"
+  fi
+}
+
+detect_gpio_chip() {
+  # GPIO-Chip automatisch finden
+  GPIOCHIP="/dev/gpiochip0"
+  if [ -e /dev/gpiochip4 ] && echo "$BOARD" | grep -q "rpi"; then
+    # RPi 5 nutzt gpiochip4 fuer die 40-Pin-Header
+    GPIOCHIP="/dev/gpiochip4"
+  elif [ -e /dev/gpiochip0 ]; then
+    GPIOCHIP="/dev/gpiochip0"
+  fi
+  # Auf RPi: GPIO-Pins sind identisch (BCM-Nummern)
+  GPIO_PINS="4,17,18,22,23,24,25,27"
+}
+
+detect_default_user() {
+  # Standard-User erkennen: wer hat sudo aufgerufen?
+  DEFAULT_USER="${SUDO_USER:-}"
+  # Fallbacks nach Board
+  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null; then
+    if echo "$BOARD" | grep -q "rpi"; then
+      DEFAULT_USER="pi"
+    elif echo "$BOARD" | grep -q "rock\|radxa"; then
+      DEFAULT_USER="rock"
+    fi
+  fi
+  # Letzter Fallback: ersten echten User finden
+  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null; then
+    DEFAULT_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}')
+  fi
+  [ -z "$DEFAULT_USER" ] && DEFAULT_USER="pi"
+}
+
+detect_board
+detect_gpio_chip
+detect_default_user
+
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
-echo "  ║   Radxa ROCK 3A · Audio Konfigurator Setup   ║"
+echo "  ║      Audio Konfigurator Setup                ║"
+echo "  ╠══════════════════════════════════════════════╣"
+printf  "  ║  Board:    %-34s║\n" "$BOARD_NAME"
+printf  "  ║  GPIO:     %-34s║\n" "$GPIOCHIP"
+printf  "  ║  User:     %-34s║\n" "$DEFAULT_USER"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
+log "Board erkannt: $BOARD_NAME ($BOARD)"
+log "GPIO-Chip: $GPIOCHIP"
+log "Default-User: $DEFAULT_USER"
 
 # ── 1. Pakete & Logging ───────────────────────────────────────────
 log "Aktualisiere Paketquellen..."
@@ -62,13 +130,21 @@ install_pkg() {
     fi
 }
 
-# Liste der benötigten Pakete (chromium statt chromium-browser fuer Radxa-Repos)
+# Chromium-Paketname: RPi OS = chromium-browser, Armbian/Radxa = chromium
+if echo "$BOARD" | grep -q "rpi"; then
+  CHROMIUM_PKG="chromium-browser"
+else
+  CHROMIUM_PKG="chromium"
+fi
+
+# Pakete fuer USB-Soundkarten & PulseAudio
 PACKAGES=(
   "python3-pip" "python3-flask" "ffmpeg" "mpg123"
   "openssh-server" "avahi-daemon" "avahi-utils"
   "x11-xserver-utils" "openbox"
-  "lightdm" "lightdm-gtk-greeter" "chromium"
+  "lightdm" "lightdm-gtk-greeter" "$CHROMIUM_PKG"
   "xdotool" "unclutter"
+  "pulseaudio" "pulseaudio-utils"
 )
 
 log "Installiere Systempakete..."
@@ -112,6 +188,18 @@ mkdir -p "$APP_DIR" "$SOUNDS_DIR"
 cp -r "$APP_SRC"/. "$APP_DIR/"
 chmod +x "${APP_DIR}/app.py" >> "$LOG_FILE" 2>&1 || true
 ok "App-Dateien kopiert"
+
+# Board-Info fuer app.py speichern
+cat > "${CFG_DIR}/board.json" <<EOF
+{
+  "board": "${BOARD}",
+  "board_name": "${BOARD_NAME}",
+  "gpiochip": "${GPIOCHIP}",
+  "gpio_pins": [${GPIO_PINS}],
+  "default_user": "${DEFAULT_USER}"
+}
+EOF
+ok "Board-Info gespeichert: ${CFG_DIR}/board.json"
 
 # ── 3. SSH ────────────────────────────────────────────────────────
 log "Aktiviere SSH..."
@@ -261,21 +349,39 @@ EOF
 # systemd Sleep/Suspend/Hibernate komplett deaktivieren
 systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >> "$LOG_FILE" 2>&1 || true
 
-# Kernel-Parameter: Konsolen-Blanking deaktivieren (Armbian ROCK 3A)
+# Kernel-Parameter: Konsolen-Blanking deaktivieren (board-spezifisch)
 if [ -f /boot/armbianEnv.txt ]; then
+    # Armbian (Radxa, etc.)
     grep -q "consoleblank=0" /boot/armbianEnv.txt || \
       sed -i 's/^extraargs=.*/& consoleblank=0/' /boot/armbianEnv.txt 2>/dev/null || \
       echo "extraargs=consoleblank=0" >> /boot/armbianEnv.txt
+elif [ -f /boot/firmware/cmdline.txt ]; then
+    # Raspberry Pi OS (Bookworm+)
+    grep -q "consoleblank=0" /boot/firmware/cmdline.txt || \
+      sed -i 's/$/ consoleblank=0/' /boot/firmware/cmdline.txt
 elif [ -f /boot/cmdline.txt ]; then
+    # Raspberry Pi OS (aelter) / generisch
     grep -q "consoleblank=0" /boot/cmdline.txt || \
       sed -i 's/$/ consoleblank=0/' /boot/cmdline.txt
+fi
+
+# RPi-spezifisch: Audio-Overlay sicherstellen (Onboard + USB)
+if echo "$BOARD" | grep -q "rpi"; then
+    RPI_CONFIG=""
+    [ -f /boot/firmware/config.txt ] && RPI_CONFIG="/boot/firmware/config.txt"
+    [ -f /boot/config.txt ] && RPI_CONFIG="/boot/config.txt"
+    if [ -n "$RPI_CONFIG" ]; then
+        # Onboard Audio aktivieren
+        grep -q "^dtparam=audio=on" "$RPI_CONFIG" || echo "dtparam=audio=on" >> "$RPI_CONFIG"
+        ok "RPi Audio-Overlay aktiviert ($RPI_CONFIG)"
+    fi
 fi
 
 # LightDM: Greeter ausblenden (direkter Autologin)
 mkdir -p /etc/lightdm/lightdm.conf.d
 cat > /etc/lightdm/lightdm.conf.d/50-radxa-kiosk.conf <<EOF
 [Seat:*]
-autologin-user=${SUDO_USER:-rock}
+autologin-user=${DEFAULT_USER}
 autologin-user-timeout=0
 user-session=openbox
 greeter-session=lightdm-gtk-greeter
@@ -286,13 +392,7 @@ ok "Idle-Schutz deaktiviert (kein Screensaver, kein Standby, kein Blanking)"
 
 # ── 10. Kiosk-Modus ─────────────────────────────────────────────────
 log "Konfiguriere Chromium Kiosk-Modus..."
-KIOSK_USER="${SUDO_USER:-rock}"
-if [ -z "$KIOSK_USER" ] || ! id "$KIOSK_USER" &>/dev/null; then
-  KIOSK_USER="rock"
-  if ! id "$KIOSK_USER" &>/dev/null; then
-     KIOSK_USER="pi"
-  fi
-fi
+KIOSK_USER="$DEFAULT_USER"
 KIOSK_HOME=$(getent passwd "$KIOSK_USER" 2>/dev/null | cut -d: -f6 || echo "/home/$KIOSK_USER")
 
 # LightDM Autologin
@@ -367,11 +467,13 @@ echo ""
 echo "  ╔══════════════════════════════════════════════╗"
 echo "  ║           Setup abgeschlossen                ║"
 echo "  ╠══════════════════════════════════════════════╣"
+printf  "  ║  Board:       %-31s║\n" "${BOARD_NAME}"
+printf  "  ║  GPIO-Chip:   %-31s║\n" "${GPIOCHIP}"
 printf  "  ║  Web-UI:      http://%-24s║\n" "${DEVICE_IP}"
 printf  "  ║  Service-IP:  http://%-24s║\n" "${SERVICE_IP}"
 printf  "  ║  mDNS:        http://%-24s║\n" "${HOSTNAME_NEW}.local"
-printf  "  ║  SSH:         ssh pi@%-23s║\n" "${SERVICE_IP}"
-echo "  ║  Login:       pi / Gerade24632@              ║"
+printf  "  ║  SSH:         ssh %s@%-19s║\n" "${DEFAULT_USER}" "${SERVICE_IP}"
+printf  "  ║  Login:       %s / Gerade24632@%*s║\n" "${DEFAULT_USER}" "$((16 - ${#DEFAULT_USER}))" ""
 echo "  ║  Log-Datei:   /var/log/radxa_install.log     ║"
 echo "  ╠══════════════════════════════════════════════╣"
 echo "  ║  DHCP:        immer aktiv                    ║"
