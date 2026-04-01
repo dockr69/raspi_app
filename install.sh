@@ -1,13 +1,13 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
 #  Audio Konfigurator · install.sh (Headless / Minimal)
-#  Unterstuetzte Boards: Radxa ROCK 3A, Raspberry Pi 3B/4, generisch
+#  Raspberry Pi 3B / 4
 #  · Flask Web-UI Port 80
-#  · Service-IP 10.0.0.10 (fest) + optionale statische IP
+#  · Statische IP 192.168.1.120 + Service-IP 10.0.0.10 (parallel)
 #  · Kein DHCP, kein Display, kein Kiosk
 #  · Hostname: textspeicher → textspeicher.local (mDNS)
 #  · SSH aktiviert (Port 22)
-#  · USB-Soundkarten werden automatisch erkannt
+#  · USB-Soundkarten + Audio-Passthrough (module-loopback)
 #  Als root ausfuehren: sudo bash install.sh
 # ═══════════════════════════════════════════════════════════════════
 set -e
@@ -23,7 +23,8 @@ CFG_DIR="/etc/radxa_audio"
 SOUNDS_DIR="${CFG_DIR}/sounds"
 WEB_SVC="radxa-audio-web"
 GPIO_SVC="radxa-audio-gpio"
-SERVICE_IP="192.168.1.120"
+STATIC_IP="192.168.1.120"
+SERVICE_IP="10.0.0.10"
 HOSTNAME_NEW="textspeicher"
 
 # Logging
@@ -46,12 +47,8 @@ detect_board() {
     BOARD="rpi3"; BOARD_NAME="Raspberry Pi 3B"
   elif echo "$model" | grep -qi "raspberry.*pi"; then
     BOARD="rpi"; BOARD_NAME="Raspberry Pi"
-  elif echo "$model" | grep -qi "rock.*3"; then
-    BOARD="rock3a"; BOARD_NAME="Radxa ROCK 3A"
-  elif echo "$model" | grep -qi "radxa\|rock"; then
-    BOARD="radxa"; BOARD_NAME="Radxa"
   else
-    BOARD="generic"; BOARD_NAME="${model:-Unbekanntes Board}"
+    BOARD="rpi"; BOARD_NAME="${model:-Raspberry Pi}"
   fi
 }
 
@@ -64,13 +61,9 @@ detect_gpio_chip() {
 detect_default_user() {
   DEFAULT_USER="${SUDO_USER:-}"
   if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
-    if echo "$BOARD" | grep -q "rpi"; then
-      DEFAULT_USER="pi"
-    elif echo "$BOARD" | grep -q "rock\|radxa"; then
-      DEFAULT_USER="rock"
-    fi
+    DEFAULT_USER="pi"
   fi
-  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
+  if ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
     DEFAULT_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}') || true
   fi
   [ -z "$DEFAULT_USER" ] && DEFAULT_USER="pi"
@@ -152,6 +145,33 @@ cat > "${CFG_DIR}/board.json" <<EOF
 EOF
 ok "App + Board-Info kopiert"
 
+# Default-Config erstellen (falls nicht vorhanden)
+if [ ! -f "${CFG_DIR}/config.json" ]; then
+  cat > "${CFG_DIR}/config.json" <<CFGEOF
+{
+  "mode": "online",
+  "hostname": "${HOSTNAME_NEW}",
+  "network": {
+    "interface": "${IFACE:-eth0}",
+    "ip": "${STATIC_IP}",
+    "mask": "255.255.255.0",
+    "gateway": "192.168.1.1",
+    "dns": "8.8.8.8"
+  },
+  "audio": {
+    "source": "@DEFAULT_SOURCE@",
+    "sink": "@DEFAULT_SINK@",
+    "volume": 100,
+    "input_volume": 100
+  },
+  "auth": {
+    "username": "${DEFAULT_USER}"
+  }
+}
+CFGEOF
+  ok "Default-Config erstellt"
+fi
+
 # ── 3. SSH ────────────────────────────────────────────────────────
 log "Aktiviere SSH..."
 systemctl enable ssh >> "$LOG_FILE" 2>&1 || systemctl enable sshd >> "$LOG_FILE" 2>&1 || true
@@ -186,19 +206,34 @@ EOF
 systemctl restart avahi-daemon >> "$LOG_FILE" 2>&1 || true
 ok "Hostname + mDNS: ${HOSTNAME_NEW}.local"
 
-# ── 5. Netzwerk: Service-IP (kein DHCP) ──────────────────────────
-log "Konfiguriere Service-IP ${SERVICE_IP}..."
+# ── 5. Netzwerk: Statische IP + Service-IP (kein DHCP) ───────────
+log "Konfiguriere Netzwerk: ${STATIC_IP} + Service-IP ${SERVICE_IP}..."
 IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
 # Sofort setzen
+ip addr add "${STATIC_IP}/24" dev "$IFACE" >> "$LOG_FILE" 2>&1 || true
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
+ip route add default via 192.168.1.1 dev "$IFACE" >> "$LOG_FILE" 2>&1 || true
 
 # Persistent
 mkdir -p /etc/network/interfaces.d
-rm -f "/etc/network/interfaces.d/${IFACE}"  # alte DHCP-Config weg
+rm -f "/etc/network/interfaces.d/${IFACE}" "/etc/network/interfaces.d/${IFACE}-static" "/etc/network/interfaces.d/${IFACE}-service"
+
+# Statische IP (Internetzugang)
+cat > "/etc/network/interfaces.d/${IFACE}-static" <<EOF
+# Audio Konfigurator — statische IP
+auto ${IFACE}
+iface ${IFACE} inet static
+    address ${STATIC_IP}/24
+    gateway 192.168.1.1
+    dns-nameservers 8.8.8.8
+EOF
+
+# Service-IP (direkter Laptop-Zugriff)
 cat > "/etc/network/interfaces.d/${IFACE}-service" <<EOF
+# Service-IP Audio Konfigurator — NICHT ENTFERNEN
 auto ${IFACE}:service
 iface ${IFACE}:service inet static
     address ${SERVICE_IP}/24
@@ -208,13 +243,18 @@ EOF
 RC="/etc/rc.local"
 MARKER="# radxa-service-ip"
 if [ -f "$RC" ] && ! grep -q "$MARKER" "$RC"; then
-  sed -i "s@^exit 0@${MARKER}\nip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true\n\nexit 0@" "$RC"
+  sed -i "s@^exit 0@${MARKER}\nip addr add ${STATIC_IP}/24 dev ${IFACE} 2>/dev/null || true\nip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true\n\nexit 0@" "$RC"
 elif [ ! -f "$RC" ]; then
-  printf '#!/bin/bash\n%s\nip addr add %s/24 dev %s label %s:service 2>/dev/null || true\nexit 0\n' \
-    "$MARKER" "$SERVICE_IP" "$IFACE" "$IFACE" > "$RC"
+  cat > "$RC" <<RCEOF
+#!/bin/bash
+${MARKER}
+ip addr add ${STATIC_IP}/24 dev ${IFACE} 2>/dev/null || true
+ip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true
+exit 0
+RCEOF
   chmod +x "$RC"
 fi
-ok "Service-IP: ${SERVICE_IP} auf ${IFACE}"
+ok "Statische IP: ${STATIC_IP}, Service-IP: ${SERVICE_IP} auf ${IFACE}"
 
 # ── 6. PulseAudio System-Modus (damit root Soundkarten sieht) ────
 log "Konfiguriere PulseAudio im System-Modus..."
@@ -238,7 +278,7 @@ fi
 # system.pa: Karten einzeln mit .nofail laden – HDMI-Fehler crashen PA nicht mehr.
 cat > "$PA_SYS_CFG" << 'PASYSPA'
 #!/usr/bin/pulseaudio -nF
-# PulseAudio system-mode – Radxa/RPi Audio-Appliance
+# PulseAudio system-mode – RPi Audio-Appliance
 # Jede ALSA-Karte wird einzeln geladen. Fehler (z.B. HDMI ohne Display)
 # werden mit .nofail ignoriert, sodass PulseAudio stabil bleibt.
 
@@ -258,6 +298,12 @@ load-module module-native-protocol-unix
 load-module module-default-device-restore
 load-module module-always-sink
 load-module module-suspend-on-idle
+
+# Audio-Passthrough: Line-In → Line-Out (USB Audio)
+# app.py verwaltet den Loopback dynamisch, dies ist der Fallback.
+.nofail
+load-module module-loopback latency_msec=50
+.fail
 PASYSPA
 
 # systemd-Service fuer PulseAudio im System-Modus
@@ -301,7 +347,7 @@ After=network.target sound.target avahi-daemon.service pulseaudio-system.service
 Wants=avahi-daemon.service pulseaudio-system.service
 
 [Service]
-ExecStartPre=/bin/bash -c "ip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true"
+ExecStartPre=/bin/bash -c "ip addr add ${STATIC_IP}/24 dev ${IFACE} 2>/dev/null || true; ip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true"
 ExecStart=/usr/bin/python3 ${APP_DIR}/app.py
 WorkingDirectory=${APP_DIR}
 Restart=always
@@ -358,7 +404,9 @@ echo "  ║           Setup abgeschlossen                ║"
 echo "  ╠══════════════════════════════════════════════╣"
 printf  "  ║  Board:       %-31s║\n" "${BOARD_NAME}"
 printf  "  ║  GPIO:        %-31s║\n" "${GPIOCHIP}"
-printf  "  ║  Web-UI:      http://%-24s║\n" "${SERVICE_IP}"
+printf  "  ║  Statische IP: %-30s║\n" "${STATIC_IP}"
+printf  "  ║  Service-IP:   %-30s║\n" "${SERVICE_IP}"
+printf  "  ║  Web-UI:      http://%-24s║\n" "${STATIC_IP}"
 printf  "  ║  mDNS:        http://%-24s║\n" "${HOSTNAME_NEW}.local"
 printf  "  ║  SSH:         ssh %s@%-19s║\n" "${DEFAULT_USER}" "${SERVICE_IP}"
 echo "  ║  Log:         /var/log/radxa_install.log     ║"

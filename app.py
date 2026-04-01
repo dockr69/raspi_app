@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Radxa ROCK 3A – Audio Konfigurator
+Audio Konfigurator – Raspberry Pi 3B / 4
 · CGI-Trigger:  GET /cgi-bin/index.cgi?webif-pass=1&spotrequest=<n>.mp3
 · Legacy:       GET /play/<n>
-· Service-IP 10.0.0.10 immer fest, nie änderbar
-· Hostname: textspeicher  →  textspeicher.local (mDNS)
+· Statische IP + Service-IP 10.0.0.10 (parallel auf eth0)
+· Hostname: konfigurierbar, Default textspeicher → textspeicher.local (mDNS)
+· Audio-Passthrough: Line-In → Line-Out via PulseAudio module-loopback
 """
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
@@ -16,18 +17,17 @@ app = Flask(__name__)
 # ── Konstanten ────────────────────────────────────────────────────────────────
 SERVICE_IP      = "10.0.0.10"
 SERVICE_MASK    = "24"
-HOSTNAME        = "textspeicher"
+DEFAULT_HOSTNAME = "textspeicher"
 CONFIG_FILE     = "/etc/radxa_audio/config.json"
 MP3_FOLDER      = "/etc/radxa_audio/sounds"
-SETUP_DONE_FILE = "/etc/radxa_audio/.setup_done"
 BOARD_FILE      = "/etc/radxa_audio/board.json"
 
-# ── Board-Erkennung (gesetzt vom install.sh oder automatisch erkannt) ────────
+# ── Board-Erkennung (Raspberry Pi 3B/4) ─────────────────────────────────────
 def _load_board_info():
     """Liest Board-Info aus board.json oder erkennt automatisch."""
     defaults = {
-        "board": "generic",
-        "board_name": "Unbekannt",
+        "board": "rpi",
+        "board_name": "Raspberry Pi",
         "gpiochip": "/dev/gpiochip0",
         "gpio_pins": [4, 17, 18, 22, 23, 24, 25, 27],
         "default_user": "pi",
@@ -35,7 +35,6 @@ def _load_board_info():
     try:
         with open(BOARD_FILE) as f:
             info = json.load(f)
-            # Merge mit defaults
             for k, v in defaults.items():
                 if k not in info:
                     info[k] = v
@@ -46,25 +45,17 @@ def _load_board_info():
     try:
         with open("/proc/device-tree/model") as f:
             model = f.read().strip("\x00").strip()
-        if "raspberry" in model.lower():
-            if "pi 4" in model.lower():
-                defaults["board"] = "rpi4"
-                defaults["board_name"] = "Raspberry Pi 4"
-            elif "pi 3" in model.lower():
-                defaults["board"] = "rpi3"
-                defaults["board_name"] = "Raspberry Pi 3B"
-            else:
-                defaults["board"] = "rpi"
-                defaults["board_name"] = model
-        elif "rock" in model.lower() or "radxa" in model.lower():
-            defaults["board"] = "rock3a"
-            defaults["board_name"] = model
+        if "pi 4" in model.lower():
+            defaults["board"] = "rpi4"
+            defaults["board_name"] = "Raspberry Pi 4"
+        elif "pi 3" in model.lower():
+            defaults["board"] = "rpi3"
+            defaults["board_name"] = "Raspberry Pi 3B"
         else:
             defaults["board_name"] = model
     except Exception:
         pass
-    # GPIO-Chip: RPi 5 nutzt gpiochip4
-    if os.path.exists("/dev/gpiochip4") and "rpi" in defaults["board"]:
+    if os.path.exists("/dev/gpiochip4"):
         defaults["gpiochip"] = "/dev/gpiochip4"
     return defaults
 
@@ -84,6 +75,115 @@ if not os.environ.get("PULSE_SERVER"):
     pa_socket = "/var/run/pulse/native"
     if os.path.exists(pa_socket):
         os.environ["PULSE_SERVER"] = f"unix:{pa_socket}"
+
+# ── Audio-Aliase ─────────────────────────────────────────────────────────────
+AUDIO_ALIASES = {
+    "alsa_input.1.mono-fallback":       "USB Audio (Eingang)",
+    "alsa_input.1.analog-stereo":       "USB Audio (Eingang Stereo)",
+    "alsa_output.1.analog-stereo":      "USB Audio (Ausgang)",
+    "alsa_output.0.stereo-fallback":    "Internal 3.5mm Audio Jack",
+    "alsa_output.0.analog-stereo":      "Internal 3.5mm Audio Jack",
+}
+
+def _audio_alias(pa_name):
+    """Gibt freundlichen Alias für PulseAudio-Namen zurück."""
+    if pa_name in AUDIO_ALIASES:
+        return AUDIO_ALIASES[pa_name]
+    # Generische Aliase
+    if "usb" in pa_name.lower() or ".1." in pa_name:
+        if "input" in pa_name or "source" in pa_name:
+            return "USB Audio (Eingang)"
+        return "USB Audio (Ausgang)"
+    if ".0." in pa_name:
+        if "monitor" in pa_name:
+            return "Internal Monitor"
+        return "Internal 3.5mm Audio Jack"
+    return pa_name
+
+# ── Hostname aus Config ──────────────────────────────────────────────────────
+def get_hostname():
+    cfg = load_cfg()
+    return cfg.get("hostname", DEFAULT_HOSTNAME)
+
+# ── Loopback-Management ─────────────────────────────────────────────────────
+_loopback_module_id = None
+
+def _get_loopback_id():
+    """Findet die aktuelle Loopback-Modul-ID (oder None)."""
+    r = run("pactl list modules short 2>/dev/null")
+    for line in r["out"].splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and "module-loopback" in parts[1]:
+            return parts[0]
+    return None
+
+def ensure_loopback():
+    """Stellt sicher, dass module-loopback geladen ist."""
+    global _loopback_module_id
+    existing = _get_loopback_id()
+    if existing:
+        _loopback_module_id = existing
+        return
+    cfg = load_cfg()
+    source = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
+    sink = cfg.get("audio", {}).get("sink", "@DEFAULT_SINK@")
+    r = run(f"pactl load-module module-loopback "
+            f"source={shlex.quote(source)} "
+            f"sink={shlex.quote(sink)} "
+            f"latency_msec=50")
+    if r["ok"]:
+        _loopback_module_id = r["out"].strip()
+        print(f"[AUDIO] Loopback geladen: {source} → {sink} (ID {_loopback_module_id})", flush=True)
+    else:
+        print(f"[AUDIO] Loopback Fehler: {r['err']}", flush=True)
+
+def reload_loopback():
+    """Entlädt und lädt Loopback mit aktueller Config neu."""
+    global _loopback_module_id
+    existing = _get_loopback_id()
+    if existing:
+        run(f"pactl unload-module {existing}")
+    _loopback_module_id = None
+    ensure_loopback()
+
+# ── Default-Config ───────────────────────────────────────────────────────────
+def _ensure_default_config():
+    """Erstellt sinnvolle Default-Config wenn keine existiert."""
+    cfg = load_cfg()
+    changed = False
+    if "audio" not in cfg:
+        # USB Audio als Default (card 1)
+        sources = detect_sources()
+        sinks = _detect_sinks()
+        cfg["audio"] = {
+            "source": sources[0] if sources else "@DEFAULT_SOURCE@",
+            "sink": sinks[0] if sinks else "@DEFAULT_SINK@",
+            "volume": 100,
+            "input_volume": 100,
+        }
+        changed = True
+    elif "sink" not in cfg.get("audio", {}):
+        sinks = _detect_sinks()
+        cfg["audio"]["sink"] = sinks[0] if sinks else "@DEFAULT_SINK@"
+        changed = True
+    if "network" not in cfg:
+        cfg["network"] = {
+            "interface": "eth0",
+            "ip": "192.168.1.120",
+            "mask": "255.255.255.0",
+            "gateway": "192.168.1.1",
+            "dns": "8.8.8.8",
+        }
+        changed = True
+    if "hostname" not in cfg:
+        cfg["hostname"] = DEFAULT_HOSTNAME
+        changed = True
+    if "mode" not in cfg:
+        cfg["mode"] = "online"
+        changed = True
+    if changed:
+        save_cfg(cfg)
+    return cfg
 
 # ── Secret Key (persistent, damit Sessions nach Neustart gültig bleiben) ──────
 def _load_secret_key():
@@ -250,11 +350,10 @@ def _safe_mp3_path(name):
     return None
 
 def is_setup_done():
-    return os.path.isfile(SETUP_DONE_FILE)
+    return True  # Wizard entfernt — immer "fertig"
 
 def mark_setup_done():
-    with open(SETUP_DONE_FILE, "w") as f:
-        f.write("1")
+    pass  # Wizard entfernt
 
 def get_interfaces():
     out = run("ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo")["out"]
@@ -289,6 +388,13 @@ def detect_sources():
                if len(l.split()) >= 2 and "monitor" not in l.split()[1].lower()]
     return sources or ["@DEFAULT_SOURCE@"]
 
+def _detect_sinks():
+    """Erkennt alle PulseAudio-Ausgänge (Sinks)."""
+    out = run("pactl list sinks short 2>/dev/null")["out"]
+    sinks = [l.split()[1] for l in out.splitlines()
+             if len(l.split()) >= 2]
+    return sinks or ["@DEFAULT_SINK@"]
+
 def list_mp3s():
     cfg = load_cfg()
     sounds = cfg.get("sounds", {})
@@ -312,10 +418,13 @@ _play_lock = threading.Lock()
 
 def _play_thread(path, source, repeat=1):
     repeat = max(1, min(10, int(repeat)))
+    cfg = load_cfg()
+    sink = cfg.get("audio", {}).get("sink", "@DEFAULT_SINK@")
     with _play_lock:
         run(f"pactl set-source-mute {shlex.quote(source)} 1")
         for _ in range(repeat):
-            run(f"mpg123 -q {shlex.quote(path)}", timeout=300)
+            # Play über den konfigurierten Ausgang
+            run(f"PULSE_SINK={shlex.quote(sink)} mpg123 -q {shlex.quote(path)}", timeout=300)
         run(f"pactl set-source-mute {shlex.quote(source)} 0")
 
 def trigger_play(name):
@@ -349,8 +458,15 @@ def trigger_play(name):
 _term_cwd  = ["/root"]
 _term_lock = threading.Lock()
 
+# ── Startup ──────────────────────────────────────────────────────────────────
+# Default-Config erstellen falls nicht vorhanden
+_ensure_default_config()
+
 # Service-IP beim Start setzen
 ensure_service_ip()
+
+# Audio-Loopback sicherstellen (Line-In → Line-Out Passthrough)
+ensure_loopback()
 
 # Sleep/Suspend beim Start deaktivieren (headless, kein Display)
 run("systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null")
@@ -388,14 +504,17 @@ def play_legacy(mp3name):
 def api_status():
     cfg = load_cfg()
     net = cfg.get("network", {})
+    hostname = cfg.get("hostname", DEFAULT_HOSTNAME)
     # SSH-Status
     ssh = run("systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null")
     # USB-Soundkarten erkennen
     usb_audio = run("lsusb 2>/dev/null | grep -i audio")
+    # Loopback-Status
+    loopback_active = _get_loopback_id() is not None
     return jsonify({
-        "setup_done":    is_setup_done(),
+        "setup_done":    True,
         "service_ip":    SERVICE_IP,
-        "hostname":      HOSTNAME,
+        "hostname":      hostname,
         "static_ip":     net.get("ip", ""),
         "static_iface":  net.get("interface", ""),
         "current_ips":   get_current_ips(),
@@ -406,6 +525,9 @@ def api_status():
         "board":         BOARD_INFO,
         "usb_audio":     bool(usb_audio["ok"] and usb_audio["out"]),
         "gpio_pins":     GPIO_PINS,
+        "loopback_active": loopback_active,
+        "audio_aliases": {name: _audio_alias(name) for name in
+                          detect_sources() + _detect_sinks()},
     })
 
 # ── API: Netzwerk ─────────────────────────────────────────────────────────────
@@ -574,13 +696,31 @@ def api_card_profile():
 @app.route('/api/audio/sources')
 def api_sources():
     sources = detect_sources()
-    # Bei nur einer Quelle: automatisch in Config speichern
     if len(sources) == 1:
         cfg = load_cfg()
         if not cfg.get("audio", {}).get("source"):
             cfg.setdefault("audio", {})["source"] = sources[0]
             save_cfg(cfg)
-    return jsonify(sources)
+    return jsonify([{"name": s, "alias": _audio_alias(s)} for s in sources])
+
+@app.route('/api/audio/sinks')
+def api_sinks():
+    sinks = _detect_sinks()
+    if len(sinks) == 1:
+        cfg = load_cfg()
+        if not cfg.get("audio", {}).get("sink"):
+            cfg.setdefault("audio", {})["sink"] = sinks[0]
+            save_cfg(cfg)
+    return jsonify([{"name": s, "alias": _audio_alias(s)} for s in sinks])
+
+@app.route('/api/audio/loopback', methods=['GET', 'POST'])
+def api_loopback():
+    """GET: Status, POST: Loopback neu laden."""
+    if request.method == 'POST':
+        reload_loopback()
+        active = _get_loopback_id() is not None
+        return jsonify({"ok": active, "active": active})
+    return jsonify({"active": _get_loopback_id() is not None})
 
 @app.route('/api/audio/save', methods=['POST'])
 def api_audio_save():
@@ -592,16 +732,25 @@ def api_audio_save():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "msg": "Ungültige Lautstärke"}), 400
     src = d.get("source", "@DEFAULT_SOURCE@")
+    sink = d.get("sink", cfg.get("audio", {}).get("sink", "@DEFAULT_SINK@"))
     if not _valid_pa_name(src):
         return jsonify({"ok": False, "msg": "Ungültige Quelle"}), 400
+    if not _valid_pa_name(sink):
+        return jsonify({"ok": False, "msg": "Ungültige Senke"}), 400
+    old_src = cfg.get("audio", {}).get("source")
+    old_sink = cfg.get("audio", {}).get("sink")
     cfg["audio"] = {
         "source":       src,
+        "sink":         sink,
         "volume":       vol_out,
         "input_volume": vol_in,
     }
     save_cfg(cfg)
-    run(f"pactl set-sink-volume @DEFAULT_SINK@ {vol_out}%")
+    run(f"pactl set-sink-volume {shlex.quote(sink)} {vol_out}%")
     run(f"pactl set-source-volume {shlex.quote(src)} {vol_in}%")
+    # Loopback neu laden wenn Source oder Sink geändert
+    if src != old_src or sink != old_sink:
+        reload_loopback()
     return jsonify({"ok": True})
 
 def _valid_pa_name(name):
@@ -929,17 +1078,27 @@ else:
     os.chmod("/usr/local/bin/radxa_gpio.py", 0o755)
     run("systemctl restart radxa-audio-gpio 2>/dev/null")
 
-# ── API: Setup ────────────────────────────────────────────────────────────────
-@app.route('/api/setup/finish', methods=['POST'])
-def api_setup_finish():
-    mark_setup_done()
-    return jsonify({"ok": True})
-
-@app.route('/api/setup/reset', methods=['POST'])
-def api_setup_reset():
-    if os.path.exists(SETUP_DONE_FILE):
-        os.remove(SETUP_DONE_FILE)
-    return jsonify({"ok": True})
+# ── API: Hostname ────────────────────────────────────────────────────────────
+@app.route('/api/hostname', methods=['GET', 'POST'])
+def api_hostname():
+    if request.method == 'GET':
+        return jsonify({"hostname": get_hostname()})
+    d = request.json or {}
+    new_hostname = re.sub(r'[^a-zA-Z0-9\-]', '', d.get("hostname", "").strip().lower())
+    if not new_hostname or len(new_hostname) < 2:
+        return jsonify({"ok": False, "msg": "Hostname zu kurz (min. 2 Zeichen)"}), 400
+    if len(new_hostname) > 63:
+        return jsonify({"ok": False, "msg": "Hostname zu lang (max. 63 Zeichen)"}), 400
+    cfg = load_cfg()
+    cfg["hostname"] = new_hostname
+    save_cfg(cfg)
+    # System-Hostname setzen
+    run(f"hostnamectl set-hostname {shlex.quote(new_hostname)} 2>/dev/null")
+    # /etc/hosts aktualisieren
+    run(f"sed -i 's/127\\.0\\.1\\.1.*/127.0.1.1\\t{new_hostname}/' /etc/hosts")
+    # Avahi neustarten für mDNS
+    run("systemctl restart avahi-daemon 2>/dev/null")
+    return jsonify({"ok": True, "hostname": new_hostname})
 
 # ── API: Terminal ─────────────────────────────────────────────────────────────
 _TERM_BLOCKED = re.compile(
@@ -1204,10 +1363,10 @@ for _tmp in globmod.glob("/tmp/_radxa_*"):
 @app.route('/')
 def index():
     cfg = load_cfg()
+    hostname = cfg.get("hostname", DEFAULT_HOSTNAME)
     return render_template('index.html',
                            service_ip=SERVICE_IP,
-                           hostname=HOSTNAME,
-                           setup_done=str(is_setup_done()).lower(),
+                           hostname=hostname,
                            mode=cfg.get("mode", "online"))
 
 if __name__ == '__main__':
