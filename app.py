@@ -7,9 +7,9 @@ Radxa ROCK 3A – Audio Konfigurator
 · Hostname: textspeicher  →  textspeicher.local (mDNS)
 """
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
-import subprocess, os, json, threading, re, secrets, shlex
+import subprocess, os, json, threading, re, secrets, shlex, time, glob as globmod, zipfile, io
 
 app = Flask(__name__)
 
@@ -74,11 +74,16 @@ GPIOCHIP   = BOARD_INFO["gpiochip"]
 print(f"[BOARD] {BOARD_INFO['board_name']} | GPIO: {GPIOCHIP} | Pins: {GPIO_PINS}", flush=True)
 
 SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
-DEFAULT_USERNAME = "pi"
-DEFAULT_PASSWORD = "Gerade24632@"
+DEFAULT_USER = BOARD_INFO.get("default_user", "pi")
 
 os.makedirs(MP3_FOLDER, exist_ok=True)
 os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+
+# PulseAudio System-Modus: Socket setzen falls nicht in Umgebung
+if not os.environ.get("PULSE_SERVER"):
+    pa_socket = "/var/run/pulse/native"
+    if os.path.exists(pa_socket):
+        os.environ["PULSE_SERVER"] = f"unix:{pa_socket}"
 
 # ── Secret Key (persistent, damit Sessions nach Neustart gültig bleiben) ──────
 def _load_secret_key():
@@ -125,22 +130,42 @@ def sanitize(name):
     return re.sub(r'[^a-zA-Z0-9_\-]', '', name).lower()
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+def _check_os_password(username, password):
+    """Prueft Passwort gegen OS (PAM). Gibt True zurueck wenn korrekt."""
+    # crypt/spwd seit Python 3.13 entfernt — verwende su
+    try:
+        p = subprocess.run(
+            ['su', '-c', 'true', '--', username],
+            input=password + '\n', capture_output=True, text=True, timeout=5
+        )
+        return p.returncode == 0
+    except Exception:
+        return False
+
 def get_auth():
     """Liest Credentials aus Config; legt Defaults an falls nicht vorhanden."""
     cfg = load_cfg()
     auth = cfg.get("auth", {})
-    if not auth.get("username") or not auth.get("password_hash"):
-        # Erstes Start: Standard-Passwort setzen
-        first_pw = DEFAULT_PASSWORD
-        auth = {
-            "username":      DEFAULT_USERNAME,
-            "password_hash": generate_password_hash(first_pw),
-        }
+    if not auth.get("username"):
+        auth["username"] = DEFAULT_USER
         cfg["auth"] = auth
         save_cfg(cfg)
-        print(f"[INIT] Erstes Start – Login: {DEFAULT_USERNAME} / {first_pw}", flush=True)
-        print("[INIT] Passwort kann unter Einstellungen geändert werden.", flush=True)
+    # password_hash ist optional — wenn nicht gesetzt, wird OS-Passwort genutzt
     return auth
+
+def verify_login(username, password):
+    """Prueft Login: zuerst Web-Passwort (falls gesetzt), dann OS-Passwort."""
+    auth = get_auth()
+    if username != auth.get("username", DEFAULT_USER):
+        return False
+    # Wenn ein Web-Passwort gesetzt wurde (ueber Einstellungen geaendert)
+    if auth.get("password_hash"):
+        if check_password_hash(auth["password_hash"], password):
+            return True
+    # OS-Passwort pruefen
+    if _check_os_password(username, password):
+        return True
+    return False
 
 @app.before_request
 def check_auth():
@@ -163,8 +188,7 @@ def login_page():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        auth = get_auth()
-        if username == auth['username'] and check_password_hash(auth['password_hash'], password):
+        if verify_login(username, password):
             session['logged_in'] = True
             session.permanent = False
             return redirect(url_for('index'))
@@ -184,11 +208,12 @@ def api_change_password():
     if not new_pw or len(new_pw) < 6:
         return jsonify({"ok": False, "msg": "Neues Passwort zu kurz (min. 6 Zeichen)"}), 400
     auth = get_auth()
-    if not check_password_hash(auth['password_hash'], old_pw):
+    username = auth.get("username", DEFAULT_USER)
+    if not verify_login(username, old_pw):
         return jsonify({"ok": False, "msg": "Aktuelles Passwort falsch"}), 403
     cfg = load_cfg()
     cfg['auth'] = {
-        "username":      auth['username'],
+        "username":      username,
         "password_hash": generate_password_hash(new_pw),
     }
     save_cfg(cfg)
@@ -327,9 +352,8 @@ _term_lock = threading.Lock()
 # Service-IP beim Start setzen
 ensure_service_ip()
 
-# Sleep/Suspend/Screensaver beim Start deaktivieren
+# Sleep/Suspend beim Start deaktivieren (headless, kein Display)
 run("systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null")
-run("xset s off 2>/dev/null; xset -dpms 2>/dev/null; xset s noblank 2>/dev/null")
 
 # ── Trigger-Routen ────────────────────────────────────────────────────────────
 @app.route('/cgi-bin/index.cgi')
@@ -411,13 +435,12 @@ def api_net_validate():
 
 @app.route('/api/network/apply', methods=['POST'])
 def api_net_apply():
-    d         = request.json
-    iface     = d.get("interface", "eth0")
-    ip        = d.get("ip", "")
-    mask      = d.get("mask", "255.255.255.0")
-    gateway   = d.get("gateway", "")
-    dns       = d.get("dns", "8.8.8.8")
-    keep_dhcp = d.get("keep_dhcp", False)   # True = DHCP parallel aktiv lassen
+    d       = request.json
+    iface   = d.get("interface", "eth0")
+    ip      = d.get("ip", "")
+    mask    = d.get("mask", "255.255.255.0")
+    gateway = d.get("gateway", "")
+    dns     = d.get("dns", "8.8.8.8")
 
     # Interface-Name absichern (Dateiname + Shell-Argument)
     if not re.match(r'^[a-zA-Z0-9_:-]+$', iface):
@@ -442,28 +465,15 @@ def api_net_apply():
             if os.path.exists(old):
                 os.remove(old)
 
-        # Haupt-Interface: statisch ODER DHCP
-        if keep_dhcp:
-            # DHCP bleibt aktiv, statische IP als Alias dazu
-            cfg_main = (
-                f"# Radxa Audio — DHCP aktiv + statische IP\n"
-                f"auto {iface}\n"
-                f"iface {iface} inet dhcp\n\n"
-                f"auto {iface}:1\n"
-                f"iface {iface}:1 inet static\n"
-                f"    address {ip}/{prefix}\n"
-            )
-        else:
-            # Kein DHCP — nur statische IP
-            cfg_main = (
-                f"# Radxa Audio — statische IP (kein DHCP)\n"
-                f"auto {iface}\n"
-                f"iface {iface} inet static\n"
-                f"    address {ip}/{prefix}\n"
-                f"    gateway {gateway}\n"
-                f"    dns-nameservers {dns}\n"
-            )
-
+        # Statische IP (kein DHCP)
+        cfg_main = (
+            f"# Radxa Audio — statische IP\n"
+            f"auto {iface}\n"
+            f"iface {iface} inet static\n"
+            f"    address {ip}/{prefix}\n"
+            f"    gateway {gateway}\n"
+            f"    dns-nameservers {dns}\n"
+        )
         with open(os.path.join(iface_dir, f"{iface}-static"), "w") as f:
             f.write(cfg_main)
 
@@ -481,21 +491,13 @@ def api_net_apply():
         errors.append("Root-Rechte fehlen für /etc/network")
 
     # ── Sofort anwenden ───────────────────────────────────────────────
-    if keep_dhcp:
-        # Statische IP als Alias hinzufügen, DHCP nicht anfassen
-        run(f"ip addr add {ip}/{prefix} dev {iface} label {iface}:1 2>/dev/null")
-    else:
-        # DHCP stoppen, statische IP als Primäradresse setzen
-        run(f"dhclient -r {shlex.quote(iface)} 2>/dev/null")           # dhclient release
-        run(f"ip addr flush dev {shlex.quote(iface)} 2>/dev/null")     # alte IPs entfernen
-        run(f"ip addr add {ip}/{prefix} dev {shlex.quote(iface)} 2>/dev/null")
-        run(f"ip route add default via {gateway} dev {shlex.quote(iface)} 2>/dev/null")
-        # DNS setzen
-        try:
-            with open("/etc/resolv.conf", "w") as f:
-                f.write(f"nameserver {dns}\n")
-        except Exception:
-            errors.append("DNS konnte nicht gesetzt werden")
+    run(f"ip addr add {shlex.quote(ip)}/{prefix} dev {shlex.quote(iface)} 2>/dev/null")
+    run(f"ip route add default via {shlex.quote(gateway)} dev {shlex.quote(iface)} 2>/dev/null")
+    try:
+        with open("/etc/resolv.conf", "w") as f:
+            f.write(f"nameserver {dns}\n")
+    except Exception:
+        errors.append("DNS konnte nicht gesetzt werden")
 
     ensure_service_ip(iface)
 
@@ -507,7 +509,6 @@ def api_net_apply():
         "mask":      mask,
         "gateway":   gateway,
         "dns":       dns,
-        "keep_dhcp": keep_dhcp,
     }
     save_cfg(cfg)
     return jsonify({"ok": not errors, "errors": errors, "service_ip": SERVICE_IP})
@@ -754,7 +755,8 @@ def api_upload():
                 out_name = f"{stem}_{c}.mp3"
                 out_path = os.path.join(MP3_FOLDER, out_name)
                 c += 1
-            open(out_path, 'w').close()  # Platzhalter reservieren
+            with open(out_path, 'wb') as _ph:
+                _ph.write(b'\x00')  # 1-Byte Platzhalter reservieren
         jobs.append({"orig": orig, "tmp": tmp, "out_name": out_name, "out_path": out_path})
 
     # 2. Parallel konvertieren — max. 4 ffmpeg-Prozesse gleichzeitig
@@ -940,11 +942,19 @@ def api_setup_reset():
     return jsonify({"ok": True})
 
 # ── API: Terminal ─────────────────────────────────────────────────────────────
+_TERM_BLOCKED = re.compile(
+    r'(rm\s+-rf\s+/|mkfs\b|dd\s+if=|:\(\)\s*\{|fork\s*bomb'
+    r'|>\s*/dev/sd|>\s*/dev/nvme|shutdown\b|halt\b|init\s+0)', re.IGNORECASE
+)
+
 @app.route('/api/terminal/exec', methods=['POST'])
 def api_terminal_exec():
     cmd = (request.json or {}).get("cmd", "").strip()
     if not cmd:
         return jsonify({"ok": True, "out": "", "cwd": _term_cwd[0]})
+    # Gefaehrliche Befehle blockieren
+    if _TERM_BLOCKED.search(cmd):
+        return jsonify({"ok": False, "out": "Befehl blockiert (gefaehrlich)", "cwd": _term_cwd[0]})
     with _term_lock:
         cwd = _term_cwd[0]
         # cd separat behandeln, damit es persistent wirkt
@@ -966,6 +976,229 @@ def api_terminal_exec():
         except subprocess.TimeoutExpired:
             out = "Timeout (30 s)"
         return jsonify({"ok": True, "out": out, "cwd": _term_cwd[0]})
+
+# ── API: Health Check ────────────────────────────────────────────────────────
+@app.route('/api/health')
+def api_health():
+    # CPU-Temperatur
+    temp = "?"
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            temp = f"{int(f.read().strip()) / 1000:.1f}"
+    except Exception:
+        pass
+    # RAM
+    mem = run("free -m | awk '/Mem:/{print $2,$3,$4}'")["out"].split()
+    ram_total = int(mem[0]) if len(mem) >= 1 else 0
+    ram_used  = int(mem[1]) if len(mem) >= 2 else 0
+    # Disk
+    disk = run("df -m / | awk 'NR==2{print $2,$3,$5}'")["out"].split()
+    disk_total  = int(disk[0]) if len(disk) >= 1 else 0
+    disk_used   = int(disk[1]) if len(disk) >= 2 else 0
+    disk_pct    = disk[2] if len(disk) >= 3 else "?"
+    # Uptime
+    uptime = run("uptime -p 2>/dev/null || uptime")["out"]
+    # Services
+    web_ok  = "active" in run("systemctl is-active radxa-audio-web 2>/dev/null")["out"]
+    gpio_ok = "active" in run("systemctl is-active radxa-audio-gpio 2>/dev/null")["out"]
+    return jsonify({
+        "cpu_temp":   temp,
+        "ram_total":  ram_total,
+        "ram_used":   ram_used,
+        "disk_total": disk_total,
+        "disk_used":  disk_used,
+        "disk_pct":   disk_pct,
+        "uptime":     uptime,
+        "web_service":  web_ok,
+        "gpio_service": gpio_ok,
+    })
+
+# ── API: Sound Preview (Browser-Streaming) ───────────────────────────────────
+@app.route('/api/mp3s/stream/<name>')
+def api_mp3_stream(name):
+    path = _safe_mp3_path(name if name.endswith('.mp3') else name + '.mp3')
+    if not path or not os.path.isfile(path):
+        return "Not found", 404
+    return send_file(path, mimetype='audio/mpeg')
+
+# ── API: Live Audio Preview (Line-In Aufnahme) ──────────────────────────────
+@app.route('/api/audio/preview', methods=['POST'])
+def api_audio_preview():
+    """Nimmt 5 Sekunden vom Line-In auf und gibt WAV zurueck."""
+    cfg = load_cfg()
+    src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
+    tmp = f"/tmp/_radxa_preview_{os.getpid()}.wav"
+    r = run(f"parecord --channels=1 --rate=22050 --format=s16le "
+            f"-d {shlex.quote(src)} --file-format=wav {shlex.quote(tmp)} &"
+            f" RPID=$!; sleep 5; kill $RPID 2>/dev/null; wait $RPID 2>/dev/null",
+            timeout=15)
+    if os.path.isfile(tmp) and os.path.getsize(tmp) > 100:
+        resp = send_file(tmp, mimetype='audio/wav')
+        threading.Thread(target=lambda: (time.sleep(2), os.remove(tmp)),
+                         daemon=True).start()
+        return resp
+    return jsonify({"ok": False, "msg": "Aufnahme fehlgeschlagen"}), 500
+
+# ── API: Reboot / Restart ───────────────────────────────────────────────────
+@app.route('/api/system/restart-service', methods=['POST'])
+def api_restart_service():
+    run("systemctl restart radxa-audio-web 2>/dev/null")
+    return jsonify({"ok": True, "msg": "Service wird neu gestartet..."})
+
+@app.route('/api/system/reboot', methods=['POST'])
+def api_reboot():
+    threading.Thread(target=lambda: (time.sleep(1), os.system("reboot")),
+                     daemon=True).start()
+    return jsonify({"ok": True, "msg": "Neustart in 1 Sekunde..."})
+
+# ── API: Backup / Restore ───────────────────────────────────────────────────
+@app.route('/api/backup/export')
+def api_backup_export():
+    """Exportiert Config + alle MP3s als ZIP."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Config
+        if os.path.isfile(CONFIG_FILE):
+            zf.write(CONFIG_FILE, "config.json")
+        # Sounds
+        for f in os.listdir(MP3_FOLDER):
+            fp = os.path.join(MP3_FOLDER, f)
+            if os.path.isfile(fp):
+                zf.write(fp, f"sounds/{f}")
+    buf.seek(0)
+    return send_file(buf, mimetype='application/zip',
+                     as_attachment=True, download_name='radxa_backup.zip')
+
+@app.route('/api/backup/import', methods=['POST'])
+def api_backup_import():
+    """Importiert Config + Sounds aus ZIP."""
+    if 'file' not in request.files:
+        return jsonify({"ok": False, "msg": "Keine Datei"}), 400
+    f = request.files['file']
+    try:
+        with zipfile.ZipFile(f.stream, 'r') as zf:
+            names = zf.namelist()
+            # Config importieren
+            if "config.json" in names:
+                cfg_data = json.loads(zf.read("config.json"))
+                save_cfg(cfg_data)
+            # Sounds importieren
+            imported = 0
+            for name in names:
+                if name.startswith("sounds/") and name.endswith(".mp3"):
+                    basename = os.path.basename(name)
+                    if basename:
+                        target = os.path.join(MP3_FOLDER, basename)
+                        with open(target, "wb") as out:
+                            out.write(zf.read(name))
+                        imported += 1
+        return jsonify({"ok": True, "msg": f"Config + {imported} Sounds importiert"})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"Import fehlgeschlagen: {e}"}), 400
+
+# ── API: Scheduled Triggers ─────────────────────────────────────────────────
+_sched_lock = threading.Lock()
+_sched_timers = {}
+
+def _load_schedules():
+    return load_cfg().get("schedules", [])
+
+def _run_scheduled(sched_id):
+    """Fuehrt geplanten Trigger aus und plant den naechsten."""
+    schedules = _load_schedules()
+    for s in schedules:
+        if s.get("id") == sched_id and s.get("enabled", True):
+            trigger_play(s["sound"])
+            break
+    _schedule_next(sched_id)
+
+def _schedule_next(sched_id):
+    """Plant den naechsten Lauf basierend auf der Konfiguration."""
+    import datetime
+    schedules = _load_schedules()
+    sched = None
+    for s in schedules:
+        if s.get("id") == sched_id:
+            sched = s
+            break
+    if not sched or not sched.get("enabled", True):
+        return
+    try:
+        now = datetime.datetime.now()
+        h, m = map(int, sched["time"].split(":"))
+        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if target <= now:
+            target += datetime.timedelta(days=1)
+        # Wochentag-Filter (0=Mo, 6=So)
+        days = sched.get("days", [0,1,2,3,4,5,6])
+        while target.weekday() not in days:
+            target += datetime.timedelta(days=1)
+        delay = (target - now).total_seconds()
+        with _sched_lock:
+            old = _sched_timers.pop(sched_id, None)
+            if old:
+                old.cancel()
+            t = threading.Timer(delay, _run_scheduled, args=[sched_id])
+            t.daemon = True
+            t.start()
+            _sched_timers[sched_id] = t
+    except Exception:
+        pass
+
+def _init_schedules():
+    for s in _load_schedules():
+        if s.get("enabled", True):
+            _schedule_next(s["id"])
+
+@app.route('/api/schedules', methods=['GET', 'POST'])
+def api_schedules():
+    if request.method == 'GET':
+        return jsonify(_load_schedules())
+    d = request.json or {}
+    sound   = d.get("sound", "")
+    time_s  = d.get("time", "")
+    days    = d.get("days", [0,1,2,3,4,5,6])
+    enabled = d.get("enabled", True)
+    if not sound or not re.match(r'^\d{1,2}:\d{2}$', time_s):
+        return jsonify({"ok": False, "msg": "Sound und Zeit (HH:MM) erforderlich"}), 400
+    cfg = load_cfg()
+    schedules = cfg.get("schedules", [])
+    sid = d.get("id") or secrets.token_hex(4)
+    # Update oder neu
+    found = False
+    for s in schedules:
+        if s["id"] == sid:
+            s.update({"sound": sound, "time": time_s, "days": days, "enabled": enabled})
+            found = True
+            break
+    if not found:
+        schedules.append({"id": sid, "sound": sound, "time": time_s, "days": days, "enabled": enabled})
+    cfg["schedules"] = schedules
+    save_cfg(cfg)
+    _schedule_next(sid)
+    return jsonify({"ok": True, "id": sid})
+
+@app.route('/api/schedules/delete', methods=['POST'])
+def api_schedules_delete():
+    sid = (request.json or {}).get("id", "")
+    cfg = load_cfg()
+    cfg["schedules"] = [s for s in cfg.get("schedules", []) if s.get("id") != sid]
+    save_cfg(cfg)
+    with _sched_lock:
+        old = _sched_timers.pop(sid, None)
+        if old:
+            old.cancel()
+    return jsonify({"ok": True})
+
+# Schedules beim Start laden
+_init_schedules()
+
+# ── Tmp-Cleanup beim Start ──────────────────────────────────────────────────
+for _tmp in globmod.glob("/tmp/_radxa_*"):
+    try:
+        os.remove(_tmp)
+    except Exception:
+        pass
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 @app.route('/')

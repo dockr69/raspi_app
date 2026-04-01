@@ -425,7 +425,10 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 
       <!-- Tab: Sounds -->
       <div id="ds-pane-sounds">
-        <div id="ds-sound-body">
+        <div style="margin-bottom:10px">
+          <input type="text" id="ds-sound-search" placeholder="🔍 Sound suchen…" oninput="filterSounds()" autocomplete="off" style="width:100%">
+        </div>
+        <div id="ds-sound-body" style="max-height:500px;overflow-y:auto">
           <div style="text-align:center;padding:24px;color:var(--t3);font-size:13px">Lade…</div>
         </div>
       </div>
@@ -443,6 +446,40 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       </div>
     </div>
 
+    <!-- Health Check -->
+    <div class="card" style="padding:14px 22px">
+      <div class="card-title">🩺 System-Status <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadHealth()">↺</button></div>
+      <div class="ds-grid" id="ds-health-grid">
+        <div class="ds-tile"><div class="ds-tile-icon">🌡</div><div><div class="ds-tile-label">CPU Temp</div><div class="ds-tile-val" id="ds-cpu-temp">–</div></div></div>
+        <div class="ds-tile"><div class="ds-tile-icon">💾</div><div><div class="ds-tile-label">RAM</div><div class="ds-tile-val" id="ds-ram">–</div></div></div>
+        <div class="ds-tile"><div class="ds-tile-icon">💿</div><div><div class="ds-tile-label">Disk</div><div class="ds-tile-val" id="ds-disk">–</div></div></div>
+        <div class="ds-tile"><div class="ds-tile-icon">⏱</div><div><div class="ds-tile-label">Uptime</div><div class="ds-tile-val" id="ds-uptime" style="font-size:11px">–</div></div></div>
+      </div>
+    </div>
+
+    <!-- Zeitgesteuerte Trigger -->
+    <div class="card" style="padding:14px 22px">
+      <div class="card-title">⏰ Zeitgesteuerte Trigger <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadSchedules()">↺</button></div>
+      <div id="ds-schedules-list" style="margin-bottom:10px"><div style="color:var(--t3);font-size:13px">Lade…</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="ds-sched-sound" style="flex:1;min-width:120px"></select>
+        <input type="text" id="ds-sched-time" placeholder="HH:MM" style="width:80px;text-align:center">
+        <button class="btn btn-green btn-sm" onclick="addSchedule()">+ Hinzufuegen</button>
+      </div>
+      <div class="spill" id="ds-sched-status"></div>
+    </div>
+
+    <!-- Backup / Restore -->
+    <div class="card" style="padding:14px 22px">
+      <div class="card-title">📦 Backup & Restore</div>
+      <div class="brow" style="margin-top:0">
+        <a class="btn btn-primary btn-sm" href="/api/backup/export" download>📥 Backup exportieren (ZIP)</a>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('ds-restore-file').click()">📤 Backup importieren</button>
+        <input type="file" id="ds-restore-file" accept=".zip" style="display:none">
+      </div>
+      <div class="spill" id="ds-backup-status"></div>
+    </div>
+
     <!-- SSH Info -->
     <div class="card" style="padding:16px 22px" id="ds-ssh-card">
       <div class="card-title">🖥 SSH-Zugang</div>
@@ -453,6 +490,16 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         &nbsp;
         <span id="ds-ssh-cmd2" style="color:var(--green)">ssh pi@textspeicher.local</span>
       </div>
+    </div>
+
+    <!-- System-Aktionen -->
+    <div class="card" style="padding:14px 22px">
+      <div class="card-title">🔧 System</div>
+      <div class="brow" style="margin-top:0">
+        <button class="btn btn-ghost btn-sm" onclick="doRestartService()">↺ Service neu starten</button>
+        <button class="btn btn-danger btn-sm" onclick="doReboot()">⏻ SBC neu starten</button>
+      </div>
+      <div class="spill" id="ds-system-status"></div>
     </div>
 
   </div>
@@ -493,7 +540,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="frow">
           <div class="flabel">Statische IP</div>
           <div class="fwrap">
-            <input type="text" id="s-net-ip" placeholder="z.B. 192.168.1.100" oninput="sNetInput()" autocomplete="off">
+            <input type="text" id="s-net-ip" placeholder="z.B. 192.168.2.220" oninput="sNetInput()" autocomplete="off">
           </div>
         </div>
         <div class="frow">
@@ -503,21 +550,12 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="frow">
           <div class="flabel">Gateway</div>
           <div class="fwrap">
-            <input type="text" id="s-net-gw" placeholder="z.B. 192.168.1.1" oninput="sNetInput()" autocomplete="off">
+            <input type="text" id="s-net-gw" placeholder="z.B. 192.168.2.1" oninput="sNetInput()" autocomplete="off">
           </div>
         </div>
         <div class="frow">
           <div class="flabel">DNS</div>
           <div class="fwrap"><input type="text" id="s-net-dns" value="8.8.8.8" oninput="sNetInput()" autocomplete="off"></div>
-        </div>
-        <div class="frow" style="margin-top:6px">
-          <div class="flabel">DHCP</div>
-          <div class="fwrap" style="display:flex;align-items:center;gap:10px">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--t2)">
-              <input type="checkbox" id="s-net-keep-dhcp" checked style="accent-color:var(--acc);width:16px;height:16px">
-              DHCP aktiv lassen (parallel zur statischen IP)
-            </label>
-          </div>
         </div>
         <div class="brow">
           <button class="btn btn-primary" id="s-btn-net-apply" onclick="sApplyNetwork()" disabled>✓ Anwenden</button>
@@ -724,25 +762,11 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="pane" id="pane-1">
         <div style="margin-bottom:24px">
           <div style="font-family:var(--mono);font-size:22px;font-weight:700">01 · <span style="color:var(--acc)">Netzwerk</span></div>
-          <div style="font-size:13px;color:var(--t2);margin-top:4px">DHCP ist aktiv — optional eine feste IP zusätzlich vergeben</div>
+          <div style="font-size:13px;color:var(--t2);margin-top:4px">Statische IP konfigurieren (Service-IP 10.0.0.10 ist immer aktiv)</div>
         </div>
 
         <div class="card">
           <div class="card-title">🌐 IP-Konfiguration</div>
-
-          <!-- Beide IPs nebeneinander als Übersicht -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
-            <div style="background:var(--green-dim);border:1px solid rgba(0,230,118,.2);border-radius:6px;padding:12px 14px">
-              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:6px">DHCP (immer aktiv)</div>
-              <div style="font-family:var(--mono);font-size:18px;color:var(--text)">automatisch</div>
-              <div style="font-size:11px;color:var(--t3);margin-top:2px">IP vom Router/DHCP-Server</div>
-            </div>
-            <div style="background:var(--warn-dim);border:1px solid rgba(255,171,64,.2);border-radius:6px;padding:12px 14px">
-              <div style="font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);margin-bottom:6px">Service-IP (fest)</div>
-              <div style="font-family:var(--mono);font-size:18px;color:var(--text)">10.0.0.10</div>
-              <div style="font-size:11px;color:var(--t3);margin-top:2px">textspeicher.local</div>
-            </div>
-          </div>
 
           <div class="frow">
             <div class="flabel">Interface</div>
@@ -751,8 +775,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="frow">
             <div class="flabel">Statische IP</div>
             <div class="fwrap">
-              <input type="text" id="net-ip" placeholder="z.B. 192.168.1.100" oninput="onNetInput()" autocomplete="off">
-              <div class="fhint" id="net-ip-hint">z.B. 192.168.1.100</div>
+              <input type="text" id="net-ip" placeholder="z.B. 192.168.2.220" oninput="onNetInput()" autocomplete="off">
+              <div class="fhint" id="net-ip-hint">z.B. 192.168.2.220</div>
             </div>
           </div>
           <div class="frow">
@@ -762,7 +786,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="frow">
             <div class="flabel">Gateway</div>
             <div class="fwrap">
-              <input type="text" id="net-gw" placeholder="z.B. 192.168.1.1" oninput="onNetInput()" autocomplete="off">
+              <input type="text" id="net-gw" placeholder="z.B. 192.168.2.1" oninput="onNetInput()" autocomplete="off">
             </div>
           </div>
           <div class="frow">
@@ -770,20 +794,9 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
             <div class="fwrap"><input type="text" id="net-dns" value="8.8.8.8" oninput="onNetInput()" autocomplete="off"></div>
           </div>
 
-          <div class="frow" style="margin-top:6px">
-            <div class="flabel">DHCP</div>
-            <div class="fwrap" style="display:flex;align-items:center;gap:10px">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--t2)">
-                <input type="checkbox" id="net-keep-dhcp" checked style="accent-color:var(--acc);width:16px;height:16px">
-                DHCP aktiv lassen (parallel zur statischen IP)
-              </label>
-            </div>
-          </div>
-
           <div class="brow">
             <button class="btn btn-primary" id="btn-net-apply" onclick="applyNetwork()" disabled>✓ Anwenden</button>
             <button class="btn btn-ghost btn-sm" onclick="loadIfaces()">↺ Interfaces</button>
-            <span style="font-family:var(--mono);font-size:11px;color:var(--t3);margin-left:auto">Optional — DHCP ist bereits aktiv</span>
           </div>
           <div class="spill" id="net-status"></div>
         </div>
@@ -1059,7 +1072,7 @@ function updateStepsOverview() {
         {n:'03', t:'GPIO',   d:'Taster zuweisen'},
       ]
     : [
-        {n:'01', t:'Netzwerk', d:'DHCP aktiv — optional feste IP'},
+        {n:'01', t:'Netzwerk', d:'Statische IP konfigurieren'},
         {n:'02', t:'Audio',    d:'Line-In Quelle & Passthrough'},
         {n:'03', t:'Sounds',   d:'MP3 hochladen & konvertieren'},
         {n:'04', t:'GPIO',     d:'Taster zuweisen (optional)'},
@@ -1114,12 +1127,12 @@ async function loadDashboard() {
   const staticIpCard = document.querySelector('.ip-card.static');
   if (staticIpCard) {
     staticIpCard.style.display = hideStatic ? 'none' : '';
-    // DHCP-Hinweis wenn keine statische IP
+    // Keine statische IP konfiguriert
     if (!hasStaticIp && !isOffline) {
       staticIpCard.style.display = '';
-      document.getElementById('ds-static-ip').textContent = 'DHCP';
-      document.querySelector('.ip-card.static .ip-card-label').textContent = 'Netzwerk-IP';
-      document.querySelector('.ip-card.static .ip-card-badge').innerHTML = '✓ DHCP aktiv';
+      document.getElementById('ds-static-ip').textContent = 'nicht gesetzt';
+      document.querySelector('.ip-card.static .ip-card-label').textContent = 'Statische IP';
+      document.querySelector('.ip-card.static .ip-card-badge').innerHTML = '⚙ Unter Einstellungen konfigurieren';
     }
   }
   const ipGrid = document.querySelector('.ip-grid');
@@ -1170,40 +1183,84 @@ async function loadDashboard() {
 
   // Sound-Tabelle
   renderSoundTable(mp3s, sip);
+
+  // Health + Schedules laden
+  loadHealth();
+  loadSchedules();
 }
 
+let _dsSounds = []; // cached for filter
 function renderSoundTable(mp3s, staticIp) {
+  _dsSounds = mp3s;
   const body = document.getElementById('ds-sound-body');
-  const isOffline = appMode === 'offline';
   if (!mp3s.length) {
-    body.innerHTML = '<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Keine Sounds — oben per Upload hinzufügen</div>';
+    body.innerHTML = '<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Keine Sounds — oben per Upload hinzufuegen</div>';
     return;
   }
-  const httpBase = staticIp && staticIp !== '–' ? `http://${staticIp}` : `http://${SERVICE_IP}`;
-  const rows = mp3s.map(f => {
-    const isGpio = isOffline || f.trigger_type === 'gpio';
-    const triggerBadge = isGpio
-      ? `<span class="ttype-badge ttype-gpio">🔌 GPIO ${f.gpio_pin ?? '–'}</span>`
-      : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
-    const repeatBadge = f.repeat > 1
-      ? `<span class="ttype-badge" style="background:rgba(0,212,255,.08);color:var(--acc);border:1px solid rgba(0,212,255,.2)">🔁 ×${f.repeat}</span>`
-      : '';
-    const urlCell = isGpio
-      ? `<span style="color:var(--t3);font-family:var(--mono);font-size:12px">GPIO ${f.gpio_pin ?? '–'} → physischer Taster</span>`
-      : `<span class="url">${httpBase}/cgi-bin/index.cgi?webif-pass=1&amp;spotrequest=${encodeURIComponent(f.name)}</span>`;
-    return `<tr>
-      <td><span style="font-family:var(--mono);font-size:13px">${esc(f.name)}</span></td>
-      <td style="white-space:nowrap">${triggerBadge}${repeatBadge}</td>
-      <td>${urlCell}</td>
-      <td style="color:var(--t3);font-family:var(--mono);font-size:11px">${f.size_kb} KB</td>
+  const search = (document.getElementById('ds-sound-search')?.value || '').toLowerCase();
+  const filtered = search ? mp3s.filter(f => f.name.toLowerCase().includes(search)) : mp3s;
+  const pinOpts = GPIO_PINS.map(p => `<option value="${p}">GPIO ${p}</option>`).join('');
+  const rows = filtered.map(f => {
+    const curType = f.trigger_type || 'http';
+    const curPin  = f.gpio_pin ?? '';
+    return `<tr data-stem="${esc(f.stem)}">
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-primary btn-sm" style="padding:3px 8px" onclick="dsPlaySound('${esc(f.name)}')">▶</button>
+          <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="dsPreviewSound('${esc(f.name)}')">🔊</button>
+          <span style="font-family:var(--mono);font-size:13px">${esc(f.name)}</span>
+        </div>
+      </td>
+      <td>
+        <select onchange="dsChangeTrigger('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;min-width:130px">
+          <option value="http" ${curType==='http'?'selected':''}>🌐 HTTP</option>
+          ${GPIO_PINS.map(p => `<option value="gpio:${p}" ${curType==='gpio'&&curPin==p?'selected':''}>🔌 GPIO ${p}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <select onchange="dsChangeRepeat('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;width:60px">
+          ${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${f.repeat===n?'selected':''}>${n}×</option>`).join('')}
+        </select>
+      </td>
+      <td style="color:var(--t3);font-family:var(--mono);font-size:11px;white-space:nowrap">${f.size_kb} KB</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')" title="Umbenennen">✎</button>
+          <button class="btn btn-danger btn-sm" style="padding:3px 8px" onclick="deleteMp3('${esc(f.name)}')" title="Loeschen">✕</button>
+        </div>
+      </td>
     </tr>`;
   }).join('');
-  body.innerHTML = `<table class="sound-table">
-    <thead><tr>
-      <th>Datei</th><th>Trigger / Repeat</th><th>${isOffline ? 'GPIO-Zuweisung' : 'Endpunkt / Zuweisung'}</th><th>Größe</th>
-    </tr></thead>
+  body.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--t3);margin-bottom:6px">${filtered.length}${search?' gefiltert':''} von ${mp3s.length} Sounds</div>
+  <table class="sound-table">
+    <thead><tr><th>Sound</th><th>Trigger</th><th>Repeat</th><th>Groesse</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+function filterSounds() {
+  const st = document.getElementById('ds-static-ip')?.textContent || '';
+  renderSoundTable(_dsSounds, st);
+}
+async function dsChangeTrigger(stem, val) {
+  let ttype = 'http', pin = null;
+  if (val.startsWith('gpio:')) { ttype = 'gpio'; pin = parseInt(val.split(':')[1]); }
+  const cur = _dsSounds.find(s=>s.stem===stem);
+  const repeat = cur ? cur.repeat : 1;
+  await api('POST','/api/mp3s/trigger',{stem, trigger_type:ttype, gpio_pin:pin, repeat});
+  mp3List = await api('GET','/api/mp3s');
+  _dsSounds = mp3List;
+}
+async function dsChangeRepeat(stem, val) {
+  const f = _dsSounds.find(s=>s.stem===stem);
+  if (!f) return;
+  await api('POST','/api/mp3s/trigger',{stem, trigger_type:f.trigger_type||'http', gpio_pin:f.gpio_pin, repeat:parseInt(val)});
+}
+async function dsPlaySound(name) {
+  await api('POST','/api/mp3s/play',{name});
+}
+function dsPreviewSound(name) {
+  const a = new Audio(`/api/mp3s/stream/${encodeURIComponent(name)}`);
+  a.play();
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -1276,22 +1333,19 @@ function onNetInput() {
   document.getElementById('net-gw').className = gw ? (ipRe.test(gw) ? 'valid' : 'invalid') : '';
 }
 async function applyNetwork() {
-  const keepDhcp = document.getElementById('net-keep-dhcp').checked;
   const data = {
     interface: document.getElementById('net-iface').value,
     ip:   document.getElementById('net-ip').value.trim(),
     mask: document.getElementById('net-mask').value.trim(),
     gateway: document.getElementById('net-gw').value.trim(),
     dns:  document.getElementById('net-dns').value.trim(),
-    keep_dhcp: keepDhcp,
   };
   const v = await api('POST','/api/network/validate', data);
   if (!v.ok) { pill('net-status','✗ '+v.errors.join(' · '),'err'); return; }
   pill('net-status','…Anwenden','info');
   const r = await api('POST','/api/network/apply', data);
   if (r.ok) {
-    const dhcpInfo = keepDhcp ? 'DHCP + ' : '';
-    pill('net-status',`✓ Statische IP: ${data.ip} · ${dhcpInfo}Service-IP ${SERVICE_IP} aktiv`,'ok');
+    pill('net-status',`✓ Statische IP: ${data.ip} · Service-IP ${SERVICE_IP} aktiv`,'ok');
     netOk = true;
     document.getElementById('btn-net-next').disabled = false;
   } else {
@@ -1721,11 +1775,10 @@ async function loadSettingsData() {
   // GPIO-Pins vom Server
   if (st.gpio_pins && st.gpio_pins.length) GPIO_PINS = st.gpio_pins;
   // Netzwerk
-  if(n.ip) document.getElementById('s-net-ip').value = n.ip;
-  if(n.mask) document.getElementById('s-net-mask').value = n.mask;
-  if(n.gateway) document.getElementById('s-net-gw').value = n.gateway;
-  if(n.dns) document.getElementById('s-net-dns').value = n.dns;
-  if(n.keep_dhcp !== undefined) document.getElementById('s-net-keep-dhcp').checked = n.keep_dhcp;
+  document.getElementById('s-net-ip').value = n.ip || '192.168.2.220';
+  document.getElementById('s-net-mask').value = n.mask || '255.255.255.0';
+  document.getElementById('s-net-gw').value = n.gateway || '192.168.2.1';
+  document.getElementById('s-net-dns').value = n.dns || '8.8.8.8';
   // Audio
   const volOut = a.volume ?? 80;
   const volIn  = a.input_volume ?? 80;
@@ -1759,22 +1812,19 @@ function sNetInput() {
   document.getElementById('s-net-gw').className = gw ? (ipRe.test(gw) ? 'valid' : 'invalid') : '';
 }
 async function sApplyNetwork() {
-  const keepDhcp = document.getElementById('s-net-keep-dhcp').checked;
   const data = {
     interface: document.getElementById('s-net-iface').value,
     ip:   document.getElementById('s-net-ip').value.trim(),
     mask: document.getElementById('s-net-mask').value.trim(),
     gateway: document.getElementById('s-net-gw').value.trim(),
     dns:  document.getElementById('s-net-dns').value.trim(),
-    keep_dhcp: keepDhcp,
   };
   const v = await api('POST','/api/network/validate', data);
   if (!v.ok) { pill('s-net-status','✗ '+v.errors.join(' · '),'err'); return; }
   pill('s-net-status','…Anwenden','info');
   const r = await api('POST','/api/network/apply', data);
   if (r.ok) {
-    const dhcpInfo = keepDhcp ? 'DHCP + ' : '';
-    pill('s-net-status',`✓ Statische IP: ${data.ip} · ${dhcpInfo}Service-IP ${SERVICE_IP} aktiv`,'ok');
+    pill('s-net-status',`✓ Statische IP: ${data.ip} · Service-IP ${SERVICE_IP} aktiv`,'ok');
   } else {
     pill('s-net-status','✗ '+(r.errors||[]).join(', '),'err');
   }
@@ -1910,23 +1960,24 @@ async function init() {
     await loadIfaces();
     await detectSources();
     await loadCards();
-    // Gespeicherte Config laden
+    // Gespeicherte Config laden (Defaults: 192.168.2.220 / .2.1)
     const n=st.config?.network||{},a=st.config?.audio||{};
-    if(n.ip){document.getElementById('net-ip').value=n.ip;const nps=document.getElementById('net-preview-static');if(nps)nps.textContent=n.ip;}
-    if(n.mask) document.getElementById('net-mask').value=n.mask;
-    if(n.gateway) document.getElementById('net-gw').value=n.gateway;
-    if(n.dns) document.getElementById('net-dns').value=n.dns;
+    document.getElementById('net-ip').value = n.ip || '192.168.2.220';
+    document.getElementById('net-mask').value = n.mask || '255.255.255.0';
+    document.getElementById('net-gw').value = n.gateway || '192.168.2.1';
+    document.getElementById('net-dns').value = n.dns || '8.8.8.8';
     if(n.interface) document.getElementById('net-iface').value=n.interface;
-    if(n.keep_dhcp !== undefined) document.getElementById('net-keep-dhcp').checked=n.keep_dhcp;
+    const nps=document.getElementById('net-preview-static');if(nps)nps.textContent=n.ip||'192.168.2.220';
     if(a.source) document.getElementById('audio-src').value=a.source;
     if(a.volume){document.getElementById('audio-vol').value=a.volume;document.getElementById('vol-val').textContent=a.volume+'%';}
     const vin=a.input_volume??80;
     document.getElementById('audio-vol-in').value=vin;document.getElementById('vol-in-val').textContent=vin+'%';
-    if(n.ip&&ipRe.test(n.ip)&&n.gateway){
-      netOk=true;
+    // Button aktivieren wenn IP+Gateway gueltig
+    onNetInput();
+    const curIp = document.getElementById('net-ip').value;
+    const curGw = document.getElementById('net-gw').value;
+    if(ipRe.test(curIp) && ipRe.test(curGw)){
       document.getElementById('btn-net-apply').disabled=false;
-      document.getElementById('btn-net-next').disabled=false;
-      onNetInput();
     }
   }
 }
@@ -2031,6 +2082,76 @@ document.getElementById('pw-modal').addEventListener('click',e=>{if(e.target===e
     }
   });
 })();
+
+// ── Health Check ─────────────────────────────────────────────────────────────
+async function loadHealth() {
+  const h = await api('GET','/api/health');
+  const t = parseFloat(h.cpu_temp);
+  const tempEl = document.getElementById('ds-cpu-temp');
+  tempEl.textContent = h.cpu_temp + ' °C';
+  tempEl.className = 'ds-tile-val ' + (t > 70 ? 'red' : t > 55 ? 'warn' : 'green');
+  document.getElementById('ds-ram').textContent = `${h.ram_used}/${h.ram_total} MB`;
+  document.getElementById('ds-disk').textContent = `${h.disk_pct} belegt`;
+  document.getElementById('ds-uptime').textContent = h.uptime;
+}
+
+// ── Schedules ────────────────────────────────────────────────────────────────
+async function loadSchedules() {
+  const list = await api('GET','/api/schedules');
+  const el = document.getElementById('ds-schedules-list');
+  // Sound-Dropdown befuellen
+  if(!mp3List.length) mp3List = await api('GET','/api/mp3s');
+  const sSel = document.getElementById('ds-sched-sound');
+  sSel.innerHTML = mp3List.map(f=>`<option value="${f.name}">${esc(f.name)}</option>`).join('');
+  if (!list.length) {
+    el.innerHTML = '<div style="color:var(--t3);font-size:13px">Keine geplanten Trigger</div>';
+    return;
+  }
+  el.innerHTML = list.map(s => `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+    <span style="font-family:var(--mono);font-size:13px;color:${s.enabled?'var(--green)':'var(--t3)'}">⏰ ${esc(s.time)}</span>
+    <span style="font-family:var(--mono);font-size:12px;color:var(--t2);flex:1">${esc(s.sound)}</span>
+    <button class="btn btn-danger btn-sm" onclick="deleteSchedule('${s.id}')">✕</button>
+  </div>`).join('');
+}
+async function addSchedule() {
+  const sound = document.getElementById('ds-sched-sound').value;
+  const time  = document.getElementById('ds-sched-time').value.trim();
+  if (!sound || !time) { pill('ds-sched-status','Sound und Zeit angeben','warn'); return; }
+  const r = await api('POST','/api/schedules',{sound, time, enabled:true});
+  pill('ds-sched-status', r.ok ? '✓ Geplant' : '✗ '+(r.msg||'Fehler'), r.ok?'ok':'err');
+  if (r.ok) loadSchedules();
+}
+async function deleteSchedule(id) {
+  await api('POST','/api/schedules/delete',{id});
+  loadSchedules();
+}
+
+// ── Backup / Restore ─────────────────────────────────────────────────────────
+document.getElementById('ds-restore-file').addEventListener('change', async function() {
+  if (!this.files.length) return;
+  const form = new FormData();
+  form.append('file', this.files[0]);
+  pill('ds-backup-status','…Importiere…','info');
+  const res = await fetch('/api/backup/import', {method:'POST', body:form});
+  const r = await res.json();
+  pill('ds-backup-status', r.ok ? '✓ '+r.msg : '✗ '+r.msg, r.ok?'ok':'err');
+  this.value = '';
+  if (r.ok) loadDashboard();
+});
+
+// ── Reboot / Restart ─────────────────────────────────────────────────────────
+async function doRestartService() {
+  pill('ds-system-status','…Service wird neu gestartet…','info');
+  await api('POST','/api/system/restart-service');
+  pill('ds-system-status','✓ Service neu gestartet','ok');
+}
+async function doReboot() {
+  if (!confirm('SBC jetzt neu starten?')) return;
+  pill('ds-system-status','…Neustart…','warn');
+  await api('POST','/api/system/reboot');
+  pill('ds-system-status','Neustart laeuft — Seite in 30s neu laden','warn');
+  setTimeout(()=>location.reload(), 30000);
+}
 </script>
 </body>
 </html>

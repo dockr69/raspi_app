@@ -1,6 +1,6 @@
 # Audio Konfigurator
 
-Ein webbasiertes Konfigurationssystem fuer **Radxa ROCK 3A**, **Raspberry Pi 3B/4** und andere ARM-Linux-Boards mit 40-Pin-GPIO-Header. Audio-Management, Netzwerkkonfiguration, Datei-Uploads und GPIO-Tasterbelegung ueber eine moderne Browser-Oberflaeche — inklusive automatischem Kiosk-Modus beim Booten.
+Ein webbasiertes Konfigurationssystem fuer **Radxa ROCK 3A**, **Raspberry Pi 3B/4** und andere ARM-Linux-Boards mit 40-Pin-GPIO-Header. Headless-Betrieb ohne Display — Flask Web-UI auf Port 80, Audio-Management, GPIO-Tasterbelegung und HTTP-Trigger.
 
 ![Platform](https://img.shields.io/badge/Platform-Radxa%20%7C%20Raspberry%20Pi%20%7C%20generisch-orange)
 ![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)
@@ -9,44 +9,17 @@ Ein webbasiertes Konfigurationssystem fuer **Radxa ROCK 3A**, **Raspberry Pi 3B/
 
 ---
 
-## Inhaltsverzeichnis
-
-- [Uebersicht](#uebersicht)
-- [Unterstuetzte Hardware](#unterstuetzte-hardware)
-- [Features](#features)
-- [Installation](#installation)
-- [Zugang nach der Installation](#zugang-nach-der-installation)
-- [Einrichtungsassistent](#einrichtungsassistent)
-- [Settings-Seite](#settings-seite)
-- [Funktionen im Detail](#funktionen-im-detail)
-  - [Board-Erkennung](#board-erkennung)
-  - [USB-Soundkarten](#usb-soundkarten)
-  - [Betriebsmodus (Online / Offline)](#betriebsmodus-online--offline)
-  - [Netzwerkkonfiguration](#netzwerkkonfiguration)
-  - [Audio-Konfiguration](#audio-konfiguration)
-  - [Sound-Bibliothek & Uploads](#sound-bibliothek--uploads)
-  - [HTTP-Trigger](#http-trigger)
-  - [GPIO-Taster](#gpio-taster)
-- [Status-Dashboard](#status-dashboard)
-- [API-Referenz](#api-referenz)
-- [Systemdienste](#systemdienste)
-- [Technische Details](#technische-details)
-- [Projektstruktur](#projektstruktur)
-- [Abhaengigkeiten](#abhaengigkeiten)
-
----
-
 ## Uebersicht
 
-Der **Audio Konfigurator** verwandelt einen Radxa ROCK 3A, Raspberry Pi 3B/4 oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollstaendiges Audiowiedergabe-System. Das Board wird automatisch erkannt und GPIO, Audio und Boot-Konfiguration entsprechend angepasst.
+Der **Audio Konfigurator** verwandelt einen Radxa ROCK 3A, Raspberry Pi 3B/4 oder kompatiblen ARM-Linux-Einplatinencomputer in ein vollstaendiges Audiowiedergabe-System. Headless-Betrieb auf einem Minimal-Image — kein Display, kein Kiosk, kein Desktop noetig.
 
 - **Automatische Board-Erkennung**: Radxa ROCK 3A, Raspberry Pi 3B, RPi 4, generisch
-- **USB-Soundkarten**: Werden automatisch erkannt und in PulseAudio eingebunden
+- **USB-Soundkarten**: Werden automatisch erkannt (PulseAudio System-Modus)
 - **Zwei Betriebsmodi**: **Online** (HTTP + GPIO) oder **Offline** (nur GPIO)
 - **Immer erreichbar** unter der festen Service-IP `10.0.0.10`
 - **Audiodateien** per Drag-and-Drop hochladen — automatische Konvertierung via ffmpeg
 - **Wiedergabe** per HTTP-Request oder physischem GPIO-Taster
-- **Kiosk-Modus**: Chromium startet beim Booten automatisch im Vollbild
+- **Headless**: Kein Display, kein Chromium, kein LightDM — nur Webserver
 
 ---
 
@@ -61,10 +34,7 @@ Der **Audio Konfigurator** verwandelt einen Radxa ROCK 3A, Raspberry Pi 3B/4 ode
 | **Radxa ROCK 3A** | RK3568 | 40-Pin | 3,5 mm TRRS | ja | Referenzboard |
 | **Radxa ROCK 3C** | RK3566 | 40-Pin | 3,5 mm TRRS | ja | Kompatibel |
 | **Radxa ROCK 4C+** | RK3399-T | 40-Pin | 3,5 mm TRRS | ja | Kompatibel |
-| **Radxa ROCK 5B** | RK3588 | 40-Pin | 3,5 mm | ja | Kompatibel |
 | **Andere ARM-Linux** | — | 40-Pin | — | ja | Generischer Modus |
-
-> **GPIO-Pins** `4, 17, 18, 22, 23, 24, 25, 27` sind auf allen 40-Pin-Boards identisch (BCM-Nummerierung).
 
 ### Audio-Geraete
 
@@ -82,25 +52,26 @@ Der **Audio Konfigurator** verwandelt einen Radxa ROCK 3A, Raspberry Pi 3B/4 ode
 
 | Feature | Beschreibung |
 |---|---|
-| **Board-Erkennung** | Automatisch: RPi 3B/4, Radxa ROCK 3A, generisch — GPIO-Chip, User, Boot-Config werden angepasst |
-| **USB Audio** | USB-Soundkarten werden automatisch erkannt und im Dashboard angezeigt |
-| **Online/Offline-Modus** | Online: HTTP + GPIO · Offline: nur GPIO, kein Router noetig |
+| **Board-Erkennung** | Automatisch: RPi 3B/4, Radxa ROCK 3A, generisch |
+| **USB Audio** | USB-Soundkarten automatisch erkannt (PulseAudio System-Modus) |
+| **Online/Offline-Modus** | Online: HTTP + GPIO · Offline: nur GPIO |
 | **Einrichtungsassistent** | 5-Schritte-Wizard beim ersten Start |
-| **Settings-Seite** | Nach Setup: Netzwerk, Audio, GPIO, Modus jederzeit aenderbar |
-| **Netzwerk** | DHCP aktiv + optionale statische IP + permanente Service-IP `10.0.0.10` |
-| **DHCP-Steuerung** | Checkbox: DHCP aktiv lassen oder nach Setup abschalten |
-| **Audio** | Getrennte Lautstaerkeregler fuer Ausgang und Eingang, Combo Jack/Headset-Profil |
-| **Datei-Upload** | Beliebige Audioformate — ffmpeg konvertiert parallel (bis zu 4 gleichzeitig) |
+| **Settings-Seite** | Netzwerk, Audio, GPIO, Modus jederzeit aenderbar |
+| **Netzwerk** | Statische IP + permanente Service-IP `10.0.0.10` (kein DHCP) |
+| **Audio** | Getrennte Lautstaerke Ein/Ausgang, Combo Jack Profil |
+| **Sound-Liste** | Inline-Dropdowns: HTTP oder GPIO-Pin pro Sound, Suchfeld |
+| **Datei-Upload** | Beliebige Audioformate — ffmpeg konvertiert parallel |
 | **HTTP-Trigger** | Sound per GET-Request abspielen |
 | **GPIO-Taster** | Physische Taster auf GPIO-Pins mit Sounds verknuepfen |
-| **Wiederholungen** | Pro Sound 1-10x einstellbar |
-| **GPIO-Daemon** | Automatisch generiert, unterstuetzt gpiod 1.x und 2.x |
-| **Status-Dashboard** | IPs, Sounds, Board-Info, USB-Audio-Status, Trigger-URLs |
-| **Kiosk-Modus** | Chromium Vollbild, Screensaver/Sleep deaktiviert |
+| **Sound-Vorschau** | Im Browser abspielen (Streaming) |
+| **Health Check** | CPU-Temperatur, RAM, Disk, Uptime |
+| **Zeitgesteuerte Trigger** | Sound zu bestimmter Uhrzeit abspielen |
+| **Backup & Restore** | Config + Sounds als ZIP exportieren/importieren |
+| **Reboot/Restart** | SBC oder Service ueber Web-UI neu starten |
+| **Terminal** | Eingebettetes Web-Terminal mit Command-Blacklist |
 | **mDNS** | `textspeicher.local` |
 | **SSH** | Vorkonfiguriert |
 | **Login** | Session-basiert, Passwort aenderbar |
-| **Web-Terminal** | Eingebettetes Terminal im Browser |
 
 ---
 
@@ -112,29 +83,29 @@ cd radxa_app
 sudo bash install.sh
 ```
 
-Das Script erkennt automatisch das Board und passt alles an:
+Das Script erkennt automatisch das Board:
 
 ```
-  ╔══════════════════════════════════════════════╗
-  ║      Audio Konfigurator Setup                ║
-  ╠══════════════════════════════════════════════╣
-  ║  Board:    Raspberry Pi 4                    ║
-  ║  GPIO:     /dev/gpiochip0                    ║
-  ║  User:     pi                                ║
-  ╚══════════════════════════════════════════════╝
+  +----------------------------------------------+
+  |      Audio Konfigurator Setup (Headless)      |
+  +----------------------------------------------+
+  |  Board:    Raspberry Pi 4                     |
+  |  GPIO:     /dev/gpiochip0                     |
+  |  User:     pi                                 |
+  +----------------------------------------------+
 ```
 
 | Schritt | Beschreibung |
 |---|---|
-| Board-Erkennung | Erkennt RPi 3B/4, Radxa ROCK 3A, oder generisches Board |
-| Systempakete | ffmpeg, mpg123, pulseaudio, openssh, avahi, chromium, openbox, lightdm |
+| Board-Erkennung | RPi 3B/4, Radxa ROCK 3A, oder generisch |
+| Systempakete | ffmpeg, mpg123, pulseaudio, openssh, avahi |
+| PulseAudio | System-Modus (damit root Soundkarten sieht) |
 | App-Deployment | Kopiert App nach `/opt/radxa_audio`, schreibt Board-Info |
 | SSH | Aktiviert Passwort-Authentifizierung |
 | Hostname | `textspeicher` + mDNS |
-| Netzwerk | Service-IP `10.0.0.10/24` (DHCP bleibt unangetastet) |
-| Boot-Config | RPi: `/boot/firmware/config.txt`, Armbian: `/boot/armbianEnv.txt` |
-| Idle-Schutz | Screensaver, DPMS, Sleep, Suspend deaktiviert |
-| systemd | Web-Service, GPIO-Daemon, Kiosk-Browser |
+| Netzwerk | Service-IP `10.0.0.10/24` (kein DHCP) |
+| Boot-Config | RPi: `dtparam=audio=on` |
+| systemd | Web-Service, GPIO-Daemon, PulseAudio System-Modus |
 
 ```bash
 sudo reboot
@@ -150,7 +121,7 @@ sudo reboot
 | **Web-UI (mDNS)** | `http://textspeicher.local` |
 | **SSH** | `ssh pi@10.0.0.10` |
 
-> **Standard-Login:** `pi` / `Gerade24632@` — Passwort aenderbar ueber den Schluessel-Button.
+> **Login:** OS-Benutzername + OS-Passwort (z.B. `pi` / das gesetzte Passwort). Passwort kann ueber den Schluessel-Button im Web-UI geaendert werden.
 
 ---
 
@@ -160,153 +131,47 @@ Beim **ersten** Aufruf der Web-UI startet der Wizard:
 
 ```
 Schritt 1 – Modus:     Online oder Offline waehlen
-Schritt 2 – Netzwerk:  Statische IP, Gateway, DNS, DHCP-Checkbox
+Schritt 2 – Netzwerk:  Statische IP, Gateway, DNS
 Schritt 3 – Audio:     PulseAudio-Quelle, Lautstaerke, Combo Jack Profil
 Schritt 4 – Sounds:    MP3s hochladen, Trigger-Typ pro Sound (HTTP/GPIO)
 Schritt 5 – GPIO:      Taster auf GPIO-Pins zuweisen
 ```
 
-> Im Offline-Modus wird der Netzwerk-Schritt uebersprungen.
-
----
-
-## Settings-Seite
-
-Nach dem Wizard ist die **Settings-Seite** ueber das Zahnrad-Symbol erreichbar (kein Wizard mehr). Vier Tabs:
-
-| Tab | Inhalt |
-|---|---|
-| **Netzwerk** | Interface, statische IP, Gateway, DNS, DHCP-Checkbox |
-| **Audio** | Quelle, Lautstaerke (Ein/Ausgang), Combo Jack/Headset-Profil |
-| **GPIO** | Pin-Mapping (nur Sounds mit GPIO-Trigger) |
-| **Modus** | Online/Offline umschalten |
-
----
-
-## Funktionen im Detail
-
-### Board-Erkennung
-
-Das Install-Script und die App erkennen das Board automatisch:
-
-| Erkennungsmethode | Quelle |
-|---|---|
-| `/proc/device-tree/model` | Primaer |
-| `/sys/firmware/devicetree/base/model` | Fallback |
-| Keyword-Matching | `raspberry pi 4`, `rock 3`, etc. |
-
-Erkannte Werte werden in `/etc/radxa_audio/board.json` gespeichert:
-
-```json
-{
-  "board": "rpi4",
-  "board_name": "Raspberry Pi 4",
-  "gpiochip": "/dev/gpiochip0",
-  "gpio_pins": [4, 17, 18, 22, 23, 24, 25, 27],
-  "default_user": "pi"
-}
-```
-
-Board-spezifische Anpassungen:
-- **GPIO-Chip**: `/dev/gpiochip0` (Standard), `/dev/gpiochip4` (RPi 5)
-- **Default-User**: `pi` (RPi), `rock` (Radxa), oder erster User >= UID 1000
-- **Boot-Config**: `/boot/firmware/config.txt` (RPi Bookworm), `/boot/armbianEnv.txt` (Armbian)
-- **Chromium-Paket**: `chromium-browser` (RPi OS), `chromium` (Armbian)
-- **Audio-Overlay**: `dtparam=audio=on` wird auf RPi automatisch gesetzt
-
-### USB-Soundkarten
-
-USB-Soundkarten werden automatisch erkannt:
-
-- PulseAudio listet alle angeschlossenen Audio-Geraete
-- Im Audio-Setup (Wizard oder Settings) erscheinen USB-Karten als Quellen
-- Im Dashboard wird ein USB-Audio-Badge angezeigt wenn erkannt
-- Kein manuelles Konfigurieren noetig — einstecken genuegt
-
-### Betriebsmodus (Online / Offline)
-
-| Modus | Trigger | Netzwerk | Einsatz |
-|---|---|---|---|
-| **Online** | HTTP + GPIO | Statische IP + Service-IP | Geraet im Netzwerk |
-| **Offline** | Nur GPIO | Nur Service-IP `10.0.0.10` | Standalone, kein Router |
-
-### Netzwerkkonfiguration
-
-- **DHCP ist standardmaessig aktiv** — Geraet bekommt automatisch eine IP
-- **DHCP-Checkbox**: Nach Wizard kann DHCP aktiv bleiben oder abgeschaltet werden
-- Optionale statische IP als Alias parallel zu DHCP
-- Service-IP `10.0.0.10` ist fest und immer erreichbar
-- Validierung von IP, Gateway und DNS im Browser
-
-### Audio-Konfiguration
-
-- Erkennt alle PulseAudio/PipeWire-Quellen automatisch (inkl. USB)
-- Getrennte Lautstaerkeregler fuer Ausgang und Eingang (0-100%)
-- Combo Jack: Soundkarte + Profil waehlbar (Headset-Modus)
-- Waehrend Wiedergabe wird Eingang automatisch stummgeschaltet
-
-### Sound-Bibliothek & Uploads
-
-- Alle gaengigen Audioformate — ffmpeg konvertiert zu MP3 (44.1 kHz, Mono, 128k)
-- Drag-and-Drop mit Fortschrittsanzeige
-- Bis zu 4 parallele ffmpeg-Konvertierungen
-- Trigger-Typ pro Sound: HTTP, GPIO oder gesperrt
-- Wiederholungen pro Sound: 1-10x
-
-### HTTP-Trigger
-
-```
-GET http://10.0.0.10/cgi-bin/index.cgi?webif-pass=1&spotrequest=datei.mp3
-GET http://10.0.0.10/play/datei.mp3
-```
-
-### GPIO-Taster
-
-- **Pins:** `4, 17, 18, 22, 23, 24, 25, 27` (BCM, identisch auf RPi und Radxa)
-- Pull-Up intern, Falling Edge, 200ms Debounce
-- Nutzt `python3-gpiod` (libgpiod) — kein RPi.GPIO noetig
-- Unterstuetzt gpiod 1.x und 2.x automatisch
-- GPIO-Chip wird automatisch erkannt
-
 ---
 
 ## Status-Dashboard
 
-- **Board-Info**: Erkanntes Board wird angezeigt
-- **USB-Audio-Badge**: Zeigt an ob USB-Soundkarte erkannt
+Nach dem Setup die Hauptansicht:
+
 - **IP-Karten**: Statische IP und Service-IP
-- **Status-Tiles**: Sounds, SSH, mDNS, Trigger-Port
-- **Sound-Bibliothek**: Trigger-URLs, GPIO-Pins, Play/Rename/Delete
-- **Upload-Bereich**: Direkt im Dashboard
+- **Board-Info + USB-Audio-Badge**
+- **System-Status**: CPU-Temperatur, RAM, Disk, Uptime
+- **Sound-Liste**: Suche, Inline-Trigger-Dropdown (HTTP/GPIO Pin), Repeat, Vorschau
+- **Upload**: Drag-and-Drop, parallele ffmpeg-Konvertierung
 - **Lautstaerke**: Ausgang + Eingang regelbar
-- **Settings**: Zahnrad-Button oeffnet Settings-Seite (nicht den Wizard)
+- **Zeitgesteuerte Trigger**: Sound zu bestimmter Uhrzeit
+- **Backup & Restore**: ZIP-Export/Import
+- **System**: Service-Restart, SBC-Reboot
 
 ---
 
 ## API-Referenz
 
-### Authentifizierung
-| Methode | Endpunkt | Beschreibung |
-|---|---|---|
-| GET/POST | `/login` | Login-Seite |
-| GET | `/logout` | Session beenden |
-| POST | `/api/auth/change-password` | Passwort aendern |
-| POST | `/api/terminal/exec` | Shell-Befehl ausfuehren |
-
 ### System
 | Methode | Endpunkt | Beschreibung |
 |---|---|---|
 | GET | `/api/status` | Systemstatus, Board-Info, USB-Audio, GPIO-Pins |
+| GET | `/api/health` | CPU-Temp, RAM, Disk, Uptime, Service-Status |
 | GET/POST | `/api/mode` | Betriebsmodus |
-| POST | `/api/setup/finish` | Setup abschliessen |
-| POST | `/api/setup/reset` | Setup zuruecksetzen |
+| POST | `/api/system/reboot` | SBC neu starten |
+| POST | `/api/system/restart-service` | Web-Service neu starten |
 
 ### Netzwerk
 | Methode | Endpunkt | Beschreibung |
 |---|---|---|
 | GET | `/api/network/interfaces` | Netzwerk-Interfaces |
 | POST | `/api/network/validate` | IP validieren |
-| POST | `/api/network/apply` | IP anwenden (mit `keep_dhcp` Option) |
+| POST | `/api/network/apply` | Statische IP anwenden |
 | POST | `/api/network/ping` | Verbindungstest |
 
 ### Audio
@@ -318,18 +183,32 @@ GET http://10.0.0.10/play/datei.mp3
 | POST | `/api/audio/save` | Audio-Konfiguration speichern |
 | POST | `/api/audio/mute` | Mute/Unmute |
 | POST | `/api/audio/test` | Test-Audio |
+| POST | `/api/audio/preview` | 5s Line-In Aufnahme (WAV) |
 
-### Dateien & GPIO
+### Sounds & GPIO
 | Methode | Endpunkt | Beschreibung |
 |---|---|---|
 | GET | `/api/mp3s` | Alle MP3s mit Trigger-Config |
+| GET | `/api/mp3s/stream/<name>` | Sound im Browser abspielen |
 | POST | `/api/upload` | Dateien hochladen & konvertieren |
-| POST | `/api/mp3s/play` | MP3 abspielen |
+| POST | `/api/mp3s/play` | MP3 auf Geraet abspielen |
 | POST | `/api/mp3s/delete` | MP3 loeschen |
 | POST | `/api/mp3s/rename` | MP3 umbenennen |
-| POST | `/api/mp3s/trigger` | Trigger-Typ setzen |
+| POST | `/api/mp3s/trigger` | Trigger-Typ setzen (HTTP/GPIO) |
 | POST | `/api/gpio/save` | GPIO-Zuweisungen speichern |
-| POST | `/api/trigger/config` | Webif-Passwort setzen |
+
+### Zeitgesteuerte Trigger
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/api/schedules` | Alle geplanten Trigger |
+| POST | `/api/schedules` | Trigger anlegen/aendern |
+| POST | `/api/schedules/delete` | Trigger loeschen |
+
+### Backup
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/api/backup/export` | Config + Sounds als ZIP |
+| POST | `/api/backup/import` | ZIP importieren |
 
 ### Wiedergabe (extern)
 | Methode | Endpunkt | Beschreibung |
@@ -345,7 +224,7 @@ GET http://10.0.0.10/play/datei.mp3
 |---|---|
 | `radxa-audio-web` | Flask-Backend auf Port 80 |
 | `radxa-audio-gpio` | GPIO-Taster-Daemon |
-| `radxa-kiosk` | Chromium-Kiosk-Modus |
+| `pulseaudio-system` | PulseAudio im System-Modus |
 
 ```bash
 systemctl status radxa-audio-web
@@ -361,22 +240,12 @@ sudo systemctl restart radxa-audio-web
 
 ```
 /etc/radxa_audio/
-  ├── config.json       # Hauptkonfiguration (Netzwerk, Audio, Sounds, Trigger)
-  ├── board.json        # Board-Erkennung (Board, GPIO-Chip, Pins, User)
-  ├── .setup_done       # Setup-Marker
-  ├── .secret_key       # Session-Key (600)
-  └── sounds/           # MP3-Dateien
+  +-- config.json       # Hauptkonfiguration (Netzwerk, Audio, Sounds, Trigger, Schedules)
+  +-- board.json        # Board-Erkennung (Board, GPIO-Chip, Pins, User)
+  +-- .setup_done       # Setup-Marker
+  +-- .secret_key       # Session-Key (600)
+  +-- sounds/           # MP3-Dateien
 ```
-
-### Board-spezifische Anpassungen
-
-| Aspekt | Raspberry Pi | Radxa | Generisch |
-|---|---|---|---|
-| GPIO-Chip | `/dev/gpiochip0` | `/dev/gpiochip0` | `/dev/gpiochip0` |
-| Default-User | `pi` | `rock` | erster User >= UID 1000 |
-| Chromium-Paket | `chromium-browser` | `chromium` | beides versucht |
-| Boot-Config | `/boot/firmware/config.txt` | `/boot/armbianEnv.txt` | `/boot/cmdline.txt` |
-| Audio-Overlay | `dtparam=audio=on` | nicht noetig | — |
 
 ### Sicherheit
 
@@ -384,8 +253,17 @@ sudo systemctl restart radxa-audio-web
 - Passwort gehasht (`werkzeug.security`)
 - `shlex.quote()` fuer alle Shell-Aufrufe
 - Pfad-Traversal-Schutz bei Dateioperationen
+- Terminal-Command-Blacklist (rm -rf /, mkfs, dd, etc.)
 - Interface- und IP-Validierung
 - Thread-Mutex fuer Audiowiedergabe
+
+### PulseAudio System-Modus
+
+Da der Webserver als `root` laeuft, wird PulseAudio im System-Modus gestartet (nicht als User-Session). So kann `pactl` die Soundkarten sehen:
+
+- `pulseaudio-system.service` startet PulseAudio mit `--system`
+- `PULSE_SERVER=unix:/var/run/pulse/native` wird in den systemd-Services gesetzt
+- User-Session PulseAudio wird deaktiviert
 
 ---
 
@@ -393,13 +271,13 @@ sudo systemctl restart radxa-audio-web
 
 ```
 radxa_app/
-├── app.py                  # Flask-Backend (API, Audio, GPIO, Board-Erkennung)
-├── install.sh              # Install-Script (Board-Erkennung, Pakete, Services)
-├── templates/
-│   ├── index.html          # Single-Page-App (Wizard + Dashboard + Settings)
-│   └── login.html          # Login-Seite
-├── sounds/                 # Lokales Sounds-Verzeichnis
-└── README.md
++-- app.py                  # Flask-Backend (API, Audio, GPIO, Board-Erkennung)
++-- install.sh              # Install-Script (Board-Erkennung, Pakete, Services)
++-- templates/
+|   +-- index.html          # Single-Page-App (Wizard + Dashboard + Settings)
+|   +-- login.html          # Login-Seite
++-- sounds/                 # Lokales Sounds-Verzeichnis
++-- README.md
 ```
 
 ---
@@ -417,12 +295,9 @@ flask>=2.3
 |---|---|
 | `ffmpeg` | Audio-Konvertierung |
 | `mpg123` | MP3-Wiedergabe |
-| `pulseaudio` + `pulseaudio-utils` | Audio-System (USB-Soundkarten) |
+| `pulseaudio` + `pulseaudio-utils` | Audio-System (System-Modus, USB-Soundkarten) |
 | `openssh-server` | SSH-Zugriff |
-| `avahi-daemon` | mDNS (`textspeicher.local`) |
-| `chromium` / `chromium-browser` | Kiosk-Modus |
-| `openbox` + `lightdm` | Desktop fuer Kiosk |
-| `unclutter` + `xdotool` | Cursor verstecken |
+| `avahi-daemon` + `avahi-utils` | mDNS (`textspeicher.local`) |
 | `python3-gpiod` | GPIO (libgpiod, kein RPi.GPIO) |
 
 ---

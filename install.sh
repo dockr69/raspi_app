@@ -1,17 +1,14 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-#  Audio Konfigurator · install.sh
-#  Unterstützte Boards: Radxa ROCK 3A, Raspberry Pi 3B/4, generisch
+#  Audio Konfigurator · install.sh (Headless / Minimal)
+#  Unterstuetzte Boards: Radxa ROCK 3A, Raspberry Pi 3B/4, generisch
 #  · Flask Web-UI Port 80
-#  · Service-IP 10.0.0.10 permanent (3-fach abgesichert)
-#  · DHCP bleibt immer aktiv (parallel zur Service-IP)
-#  · Hostname: textspeicher  →  textspeicher.local (mDNS)
-#  · Chromium Kiosk-Fullscreen beim Boot (Screensaver deaktiviert)
+#  · Service-IP 10.0.0.10 (fest) + optionale statische IP
+#  · Kein DHCP, kein Display, kein Kiosk
+#  · Hostname: textspeicher → textspeicher.local (mDNS)
 #  · SSH aktiviert (Port 22)
-#  · Standard-Login: pi / Gerade24632@
 #  · USB-Soundkarten werden automatisch erkannt
-#  · Logging: /var/log/radxa_install.log
-#  Als root ausführen: sudo bash install.sh
+#  Als root ausfuehren: sudo bash install.sh
 # ═══════════════════════════════════════════════════════════════════
 set -e
 cd "$(dirname "$0")"
@@ -26,70 +23,55 @@ CFG_DIR="/etc/radxa_audio"
 SOUNDS_DIR="${CFG_DIR}/sounds"
 WEB_SVC="radxa-audio-web"
 GPIO_SVC="radxa-audio-gpio"
-KIOSK_SVC="radxa-kiosk"
 SERVICE_IP="10.0.0.10"
 HOSTNAME_NEW="textspeicher"
-WEB_URL="http://${SERVICE_IP}"
 
-# Logging Funktionen (Ausgabe auf Konsole + Logdatei)
+# Logging
 log()  { echo -e "\033[1;36m[INFO]\033[0m  $*" | tee -a "$LOG_FILE"; }
 ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*" | tee -a "$LOG_FILE"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m  $*" | tee -a "$LOG_FILE"; }
 err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*" | tee -a "$LOG_FILE"; exit 1; }
 
-[ "$EUID" -ne 0 ] && err "Bitte als root ausführen: sudo bash install.sh"
+[ "$EUID" -ne 0 ] && err "Bitte als root ausfuehren: sudo bash install.sh"
 
 # ── 0. Board-Erkennung ──────────────────────────────────────────────
 detect_board() {
   local model=""
-  if [ -f /proc/device-tree/model ]; then
-    model=$(tr -d '\0' < /proc/device-tree/model)
-  elif [ -f /sys/firmware/devicetree/base/model ]; then
-    model=$(tr -d '\0' < /sys/firmware/devicetree/base/model)
-  fi
+  [ -f /proc/device-tree/model ] && model=$(tr -d '\0' < /proc/device-tree/model)
+  [ -z "$model" ] && [ -f /sys/firmware/devicetree/base/model ] && model=$(tr -d '\0' < /sys/firmware/devicetree/base/model)
 
   if echo "$model" | grep -qi "raspberry.*pi.*4"; then
     BOARD="rpi4"; BOARD_NAME="Raspberry Pi 4"
   elif echo "$model" | grep -qi "raspberry.*pi.*3"; then
     BOARD="rpi3"; BOARD_NAME="Raspberry Pi 3B"
   elif echo "$model" | grep -qi "raspberry.*pi"; then
-    BOARD="rpi"; BOARD_NAME="Raspberry Pi (unbekannt)"
+    BOARD="rpi"; BOARD_NAME="Raspberry Pi"
   elif echo "$model" | grep -qi "rock.*3"; then
     BOARD="rock3a"; BOARD_NAME="Radxa ROCK 3A"
   elif echo "$model" | grep -qi "radxa\|rock"; then
-    BOARD="radxa"; BOARD_NAME="Radxa (unbekannt)"
+    BOARD="radxa"; BOARD_NAME="Radxa"
   else
     BOARD="generic"; BOARD_NAME="${model:-Unbekanntes Board}"
   fi
 }
 
 detect_gpio_chip() {
-  # GPIO-Chip automatisch finden
   GPIOCHIP="/dev/gpiochip0"
-  if [ -e /dev/gpiochip4 ] && echo "$BOARD" | grep -q "rpi"; then
-    # RPi 5 nutzt gpiochip4 fuer die 40-Pin-Header
-    GPIOCHIP="/dev/gpiochip4"
-  elif [ -e /dev/gpiochip0 ]; then
-    GPIOCHIP="/dev/gpiochip0"
-  fi
-  # Auf RPi: GPIO-Pins sind identisch (BCM-Nummern)
+  [ -e /dev/gpiochip4 ] && echo "$BOARD" | grep -q "rpi" && GPIOCHIP="/dev/gpiochip4"
   GPIO_PINS="4,17,18,22,23,24,25,27"
 }
 
 detect_default_user() {
-  # Standard-User erkennen: wer hat sudo aufgerufen?
   DEFAULT_USER="${SUDO_USER:-}"
-  # Fallbacks nach Board
-  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null; then
+  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
     if echo "$BOARD" | grep -q "rpi"; then
       DEFAULT_USER="pi"
     elif echo "$BOARD" | grep -q "rock\|radxa"; then
       DEFAULT_USER="rock"
     fi
   fi
-  # Letzter Fallback: ersten echten User finden
-  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null; then
-    DEFAULT_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}')
+  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
+    DEFAULT_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}') || true
   fi
   [ -z "$DEFAULT_USER" ] && DEFAULT_USER="pi"
 }
@@ -100,96 +82,64 @@ detect_default_user
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
-echo "  ║      Audio Konfigurator Setup                ║"
+echo "  ║      Audio Konfigurator Setup (Headless)     ║"
 echo "  ╠══════════════════════════════════════════════╣"
 printf  "  ║  Board:    %-34s║\n" "$BOARD_NAME"
 printf  "  ║  GPIO:     %-34s║\n" "$GPIOCHIP"
 printf  "  ║  User:     %-34s║\n" "$DEFAULT_USER"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
-log "Board erkannt: $BOARD_NAME ($BOARD)"
-log "GPIO-Chip: $GPIOCHIP"
-log "Default-User: $DEFAULT_USER"
 
-# ── 1. Pakete & Logging ───────────────────────────────────────────
+# ── 1. Pakete ─────────────────────────────────────────────────────
 log "Aktualisiere Paketquellen..."
-apt-get update -qq >> "$LOG_FILE" 2>&1 || warn "apt-get update hatte Warnungen, siehe Log."
+apt-get update -qq >> "$LOG_FILE" 2>&1 || warn "apt-get update hatte Warnungen"
 
 INSTALLED_PKGS=()
 FAILED_PKGS=()
 
-# Funktion zum Installieren und Loggen einzelner Pakete
 install_pkg() {
-    PKG=$1
-    if DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG" --no-install-recommends >> "$LOG_FILE" 2>&1; then
-        ok "Installiert: $PKG"
-        INSTALLED_PKGS+=("$PKG")
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y "$1" --no-install-recommends >> "$LOG_FILE" 2>&1; then
+        ok "Installiert: $1"; INSTALLED_PKGS+=("$1")
     else
-        warn "Fehlgeschlagen: $PKG"
-        FAILED_PKGS+=("$PKG")
+        warn "Fehlgeschlagen: $1"; FAILED_PKGS+=("$1")
     fi
 }
 
-# Chromium-Paketname: RPi OS = chromium-browser, Armbian/Radxa = chromium
-if echo "$BOARD" | grep -q "rpi"; then
-  CHROMIUM_PKG="chromium-browser"
-else
-  CHROMIUM_PKG="chromium"
-fi
-
-# Pakete fuer USB-Soundkarten & PulseAudio
+# Nur das Noetigste — kein X11, kein Chromium, kein LightDM
 PACKAGES=(
   "python3-pip" "python3-flask" "ffmpeg" "mpg123"
   "openssh-server" "avahi-daemon" "avahi-utils"
-  "x11-xserver-utils" "openbox"
-  "lightdm" "lightdm-gtk-greeter" "$CHROMIUM_PKG"
-  "xdotool" "unclutter"
   "pulseaudio" "pulseaudio-utils"
 )
 
 log "Installiere Systempakete..."
-for p in "${PACKAGES[@]}"; do
-    install_pkg "$p"
-done
+for p in "${PACKAGES[@]}"; do install_pkg "$p"; done
 
-# gpiod: erst apt versuchen, dann pip3 als Fallback
-log "Installiere gpiod (apt oder pip3)..."
+# gpiod
+log "Installiere gpiod..."
 if DEBIAN_FRONTEND=noninteractive apt-get install -y python3-gpiod --no-install-recommends >> "$LOG_FILE" 2>&1; then
-    ok "python3-gpiod via apt installiert."
+    ok "python3-gpiod via apt"
 elif pip3 install gpiod --break-system-packages >> "$LOG_FILE" 2>&1; then
-    ok "gpiod via pip3 (break-system-packages) installiert."
+    ok "gpiod via pip3"
 elif pip3 install gpiod >> "$LOG_FILE" 2>&1; then
-    ok "gpiod via pip3 installiert."
+    ok "gpiod via pip3 (legacy)"
 else
-    warn "gpiod konnte weder via apt noch pip installiert werden. GPIO-Funktionen nicht verfuegbar."
+    warn "gpiod nicht installierbar — GPIO nicht verfuegbar"
     FAILED_PKGS+=("gpiod")
 fi
 
-# FIX: Erstelle Symlink falls 'chromium' installiert wurde, aber 'chromium-browser' fehlt
-if [ -f /usr/bin/chromium ] && [ ! -f /usr/bin/chromium-browser ]; then
-    ln -sf /usr/bin/chromium /usr/bin/chromium-browser
-    ok "Symlink fuer chromium-browser erstellt (Fix fuer Radxa Repo)."
-elif [ ! -f /usr/bin/chromium-browser ]; then
-    warn "Weder chromium noch chromium-browser gefunden. Kiosk-Modus koennte fehlschlagen."
-fi
-
-log "Installiere Flask via pip3..."
-if pip3 install flask --break-system-packages >> "$LOG_FILE" 2>&1; then
-    ok "Flask via pip (break-system-packages) installiert."
-elif pip3 install flask >> "$LOG_FILE" 2>&1; then
-    ok "Flask via pip installiert."
-else
-    warn "Pip Installation fehlgeschlagen. Pruefe Log."
-fi
+# Flask via pip (falls apt-Version zu alt)
+pip3 install flask --break-system-packages >> "$LOG_FILE" 2>&1 \
+  || pip3 install flask >> "$LOG_FILE" 2>&1 \
+  || warn "Flask pip fehlgeschlagen"
 
 # ── 2. App-Dateien ────────────────────────────────────────────────
 log "Kopiere App nach ${APP_DIR}..."
 mkdir -p "$APP_DIR" "$SOUNDS_DIR"
 cp -r "$APP_SRC"/. "$APP_DIR/"
-chmod +x "${APP_DIR}/app.py" >> "$LOG_FILE" 2>&1 || true
-ok "App-Dateien kopiert"
+chmod +x "${APP_DIR}/app.py" 2>/dev/null || true
 
-# Board-Info fuer app.py speichern
+# Board-Info
 cat > "${CFG_DIR}/board.json" <<EOF
 {
   "board": "${BOARD}",
@@ -199,39 +149,33 @@ cat > "${CFG_DIR}/board.json" <<EOF
   "default_user": "${DEFAULT_USER}"
 }
 EOF
-ok "Board-Info gespeichert: ${CFG_DIR}/board.json"
+ok "App + Board-Info kopiert"
 
 # ── 3. SSH ────────────────────────────────────────────────────────
 log "Aktiviere SSH..."
-systemctl enable ssh  >> "$LOG_FILE" 2>&1 || systemctl enable sshd  >> "$LOG_FILE" 2>&1 || true
-systemctl start  ssh  >> "$LOG_FILE" 2>&1 || systemctl start  sshd  >> "$LOG_FILE" 2>&1 || true
-# PasswordAuthentication sicherstellen
+systemctl enable ssh >> "$LOG_FILE" 2>&1 || systemctl enable sshd >> "$LOG_FILE" 2>&1 || true
+systemctl start  ssh >> "$LOG_FILE" 2>&1 || systemctl start  sshd >> "$LOG_FILE" 2>&1 || true
 SSHD_CFG="/etc/ssh/sshd_config"
 if grep -q "^PasswordAuthentication no" "$SSHD_CFG" 2>/dev/null; then
   sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/" "$SSHD_CFG"
   systemctl restart ssh >> "$LOG_FILE" 2>&1 || systemctl restart sshd >> "$LOG_FILE" 2>&1 || true
 fi
-ok "SSH aktiv auf Port 22"
+ok "SSH aktiv"
 
-# ── 4. Hostname ────────────────────────────────────────────────────
-log "Setze Hostname auf '${HOSTNAME_NEW}'..."
+# ── 4. Hostname + mDNS ───────────────────────────────────────────
+log "Setze Hostname: ${HOSTNAME_NEW}..."
 hostnamectl set-hostname "$HOSTNAME_NEW" 2>/dev/null || hostname "$HOSTNAME_NEW"
-if ! grep -q "$HOSTNAME_NEW" /etc/hosts; then
+grep -q "$HOSTNAME_NEW" /etc/hosts || {
   sed -i "s/127\.0\.1\.1.*/127.0.1.1\t${HOSTNAME_NEW}/" /etc/hosts
-  grep -q "127.0.1.1.*${HOSTNAME_NEW}" /etc/hosts \
-    || echo -e "127.0.1.1\t${HOSTNAME_NEW}" >> /etc/hosts
-fi
-ok "Hostname: ${HOSTNAME_NEW}"
-
-# ── 5. mDNS (Avahi) ────────────────────────────────────────────────
-log "Konfiguriere mDNS (${HOSTNAME_NEW}.local)..."
+  grep -q "127.0.1.1.*${HOSTNAME_NEW}" /etc/hosts || echo -e "127.0.1.1\t${HOSTNAME_NEW}" >> /etc/hosts
+}
 systemctl enable avahi-daemon >> "$LOG_FILE" 2>&1 || true
 systemctl start  avahi-daemon >> "$LOG_FILE" 2>&1 || true
 cat > "/etc/avahi/services/radxa-audio.service" <<'EOF'
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <service-group>
-  <name replace-wildcards="yes">Radxa Audio (%h)</name>
+  <name replace-wildcards="yes">Audio Konfigurator (%h)</name>
   <service>
     <type>_http._tcp</type>
     <port>80</port>
@@ -239,27 +183,21 @@ cat > "/etc/avahi/services/radxa-audio.service" <<'EOF'
 </service-group>
 EOF
 systemctl restart avahi-daemon >> "$LOG_FILE" 2>&1 || true
-ok "mDNS: ${HOSTNAME_NEW}.local -> Port 80"
+ok "Hostname + mDNS: ${HOSTNAME_NEW}.local"
 
-# ── 6. Netzwerk: DHCP + Service-IP ────────────────────────────────
-log "Konfiguriere Netzwerk (DHCP + Service-IP ${SERVICE_IP})..."
+# ── 5. Netzwerk: Service-IP (kein DHCP) ──────────────────────────
+log "Konfiguriere Service-IP ${SERVICE_IP}..."
 IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
-# Sofort Service-IP setzen (DHCP bleibt unangetastet)
+# Sofort setzen
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
 
-# Nur Service-IP persistent machen — DHCP NICHT anfassen!
-# DHCP läuft bereits via NetworkManager/systemd-networkd, eine erneute
-# Deklaration in interfaces.d würde die bestehende Lease zerstören.
+# Persistent
 mkdir -p /etc/network/interfaces.d
-
-# Alte DHCP-Interface-Config entfernen falls vorhanden (von früheren Installationen)
-rm -f "/etc/network/interfaces.d/${IFACE}"
-
+rm -f "/etc/network/interfaces.d/${IFACE}"  # alte DHCP-Config weg
 cat > "/etc/network/interfaces.d/${IFACE}-service" <<EOF
-# Service-IP Radxa Audio — NICHT ENTFERNEN
 auto ${IFACE}:service
 iface ${IFACE}:service inet static
     address ${SERVICE_IP}/24
@@ -275,15 +213,64 @@ elif [ ! -f "$RC" ]; then
     "$MARKER" "$SERVICE_IP" "$IFACE" "$IFACE" > "$RC"
   chmod +x "$RC"
 fi
-ok "Netzwerk: DHCP aktiv + Service-IP ${SERVICE_IP} (${IFACE}:service)"
+ok "Service-IP: ${SERVICE_IP} auf ${IFACE}"
 
-# ── 7. systemd: Web-Service ─────────────────────────────────────────
-log "Erstelle systemd-Service: ${WEB_SVC}..."
+# ── 6. PulseAudio System-Modus (damit root Soundkarten sieht) ────
+log "Konfiguriere PulseAudio im System-Modus..."
+PA_SYS_CFG="/etc/pulse/system.pa"
+PA_DAEMON_CFG="/etc/pulse/daemon.conf"
+
+# System-Modus erlauben
+if [ -f "$PA_DAEMON_CFG" ]; then
+    grep -q "^daemonize" "$PA_DAEMON_CFG" || echo "daemonize = yes" >> "$PA_DAEMON_CFG"
+    grep -q "^allow-exit" "$PA_DAEMON_CFG" || echo "allow-exit = no" >> "$PA_DAEMON_CFG"
+fi
+
+# root zur pulse-Gruppe hinzufuegen
+usermod -aG pulse,pulse-access,audio root 2>/dev/null || true
+if [ -n "$DEFAULT_USER" ] && id "$DEFAULT_USER" &>/dev/null 2>&1; then
+    usermod -aG pulse,pulse-access,audio "$DEFAULT_USER" 2>/dev/null || true
+fi
+
+# systemd-Service fuer PulseAudio im System-Modus
+cat > "/etc/systemd/system/pulseaudio-system.service" <<'PASVC'
+[Unit]
+Description=PulseAudio System-Wide Server
+After=sound.target
+
+[Service]
+ExecStart=/usr/bin/pulseaudio --system --disallow-exit --disallow-module-loading=0 --log-target=journal
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+PASVC
+systemctl daemon-reload >> "$LOG_FILE" 2>&1
+systemctl enable pulseaudio-system >> "$LOG_FILE" 2>&1
+systemctl start  pulseaudio-system >> "$LOG_FILE" 2>&1 || true
+# User-Session PulseAudio deaktivieren (verhindert Konflikte)
+systemctl --global disable pulseaudio.service pulseaudio.socket 2>/dev/null || true
+ok "PulseAudio System-Modus aktiv"
+
+# ── 7. RPi Audio-Overlay (falls Raspberry Pi) ──────────────────
+if echo "$BOARD" | grep -q "rpi"; then
+    RPI_CONFIG=""
+    [ -f /boot/firmware/config.txt ] && RPI_CONFIG="/boot/firmware/config.txt"
+    [ -f /boot/config.txt ] && RPI_CONFIG="/boot/config.txt"
+    if [ -n "$RPI_CONFIG" ]; then
+        grep -q "^dtparam=audio=on" "$RPI_CONFIG" || echo "dtparam=audio=on" >> "$RPI_CONFIG"
+        ok "RPi Audio-Overlay: $RPI_CONFIG"
+    fi
+fi
+
+# ── 8. systemd: Web-Service ─────────────────────────────────────
+log "Erstelle Web-Service..."
 cat > "/etc/systemd/system/${WEB_SVC}.service" <<EOF
 [Unit]
-Description=Radxa Audio Konfigurator (Web-UI Port 80)
-After=network.target sound.target avahi-daemon.service
-Wants=avahi-daemon.service
+Description=Audio Konfigurator (Web-UI Port 80)
+After=network.target sound.target avahi-daemon.service pulseaudio-system.service
+Wants=avahi-daemon.service pulseaudio-system.service
 
 [Service]
 ExecStartPre=/bin/bash -c "ip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true"
@@ -293,6 +280,7 @@ Restart=always
 RestartSec=3
 User=root
 Environment=PYTHONUNBUFFERED=1
+Environment=PULSE_SERVER=unix:/var/run/pulse/native
 
 [Install]
 WantedBy=multi-user.target
@@ -300,14 +288,14 @@ EOF
 systemctl daemon-reload >> "$LOG_FILE" 2>&1
 systemctl enable "$WEB_SVC" >> "$LOG_FILE" 2>&1
 systemctl start  "$WEB_SVC" >> "$LOG_FILE" 2>&1
-ok "Web-Service konfiguriert"
+ok "Web-Service: Port 80"
 
-# ── 8. systemd: GPIO-Daemon ─────────────────────────────────────────
-log "Erstelle systemd-Service: ${GPIO_SVC}..."
+# ── 9. systemd: GPIO-Daemon ─────────────────────────────────────
+log "Erstelle GPIO-Service..."
 cat > "/etc/systemd/system/${GPIO_SVC}.service" <<EOF
 [Unit]
-Description=Radxa Audio GPIO Daemon
-After=${WEB_SVC}.service
+Description=Audio GPIO Daemon
+After=${WEB_SVC}.service pulseaudio-system.service
 ConditionPathExists=/usr/local/bin/radxa_gpio.py
 
 [Service]
@@ -315,181 +303,43 @@ ExecStart=/usr/bin/python3 /usr/local/bin/radxa_gpio.py
 Restart=always
 RestartSec=5
 User=root
+Environment=PULSE_SERVER=unix:/var/run/pulse/native
 
 [Install]
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload >> "$LOG_FILE" 2>&1
 systemctl enable "$GPIO_SVC" >> "$LOG_FILE" 2>&1 || true
-ok "GPIO-Service eingerichtet"
+ok "GPIO-Service bereit"
 
-# ── 9. Screensaver / Idle-Schutz deaktivieren ──────────────────────
-log "Deaktiviere Screensaver, Blanking, DPMS, Suspend..."
-
-# X11 Blanking global deaktivieren
-mkdir -p /etc/X11/xorg.conf.d
-cat > /etc/X11/xorg.conf.d/10-no-blanking.conf <<'EOF'
-Section "ServerFlags"
-    Option "BlankTime"  "0"
-    Option "StandbyTime" "0"
-    Option "SuspendTime" "0"
-    Option "OffTime"     "0"
-    Option "DPMS"        "false"
-EndSection
-
-Section "ServerLayout"
-    Identifier "Default Layout"
-    Option "BlankTime"  "0"
-    Option "StandbyTime" "0"
-    Option "SuspendTime" "0"
-    Option "OffTime"     "0"
-EndSection
-EOF
-
-# systemd Sleep/Suspend/Hibernate komplett deaktivieren
-systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >> "$LOG_FILE" 2>&1 || true
-
-# Kernel-Parameter: Konsolen-Blanking deaktivieren (board-spezifisch)
-if [ -f /boot/armbianEnv.txt ]; then
-    # Armbian (Radxa, etc.)
-    grep -q "consoleblank=0" /boot/armbianEnv.txt || \
-      sed -i 's/^extraargs=.*/& consoleblank=0/' /boot/armbianEnv.txt 2>/dev/null || \
-      echo "extraargs=consoleblank=0" >> /boot/armbianEnv.txt
-elif [ -f /boot/firmware/cmdline.txt ]; then
-    # Raspberry Pi OS (Bookworm+)
-    grep -q "consoleblank=0" /boot/firmware/cmdline.txt || \
-      sed -i 's/$/ consoleblank=0/' /boot/firmware/cmdline.txt
-elif [ -f /boot/cmdline.txt ]; then
-    # Raspberry Pi OS (aelter) / generisch
-    grep -q "consoleblank=0" /boot/cmdline.txt || \
-      sed -i 's/$/ consoleblank=0/' /boot/cmdline.txt
-fi
-
-# RPi-spezifisch: Audio-Overlay sicherstellen (Onboard + USB)
-if echo "$BOARD" | grep -q "rpi"; then
-    RPI_CONFIG=""
-    [ -f /boot/firmware/config.txt ] && RPI_CONFIG="/boot/firmware/config.txt"
-    [ -f /boot/config.txt ] && RPI_CONFIG="/boot/config.txt"
-    if [ -n "$RPI_CONFIG" ]; then
-        # Onboard Audio aktivieren
-        grep -q "^dtparam=audio=on" "$RPI_CONFIG" || echo "dtparam=audio=on" >> "$RPI_CONFIG"
-        ok "RPi Audio-Overlay aktiviert ($RPI_CONFIG)"
-    fi
-fi
-
-# LightDM: Greeter ausblenden (direkter Autologin)
-mkdir -p /etc/lightdm/lightdm.conf.d
-cat > /etc/lightdm/lightdm.conf.d/50-radxa-kiosk.conf <<EOF
-[Seat:*]
-autologin-user=${DEFAULT_USER}
-autologin-user-timeout=0
-user-session=openbox
-greeter-session=lightdm-gtk-greeter
-xserver-command=X -s 0 -dpms -nocursor
-EOF
-
-ok "Idle-Schutz deaktiviert (kein Screensaver, kein Standby, kein Blanking)"
-
-# ── 10. Kiosk-Modus ─────────────────────────────────────────────────
-log "Konfiguriere Chromium Kiosk-Modus..."
-KIOSK_USER="$DEFAULT_USER"
-KIOSK_HOME=$(getent passwd "$KIOSK_USER" 2>/dev/null | cut -d: -f6 || echo "/home/$KIOSK_USER")
-
-# LightDM Autologin
-if [ -f /etc/lightdm/lightdm.conf ]; then
-  sed -i "s/^#\?autologin-user=.*/autologin-user=${KIOSK_USER}/" /etc/lightdm/lightdm.conf
-  sed -i "s/^#\?autologin-user-timeout=.*/autologin-user-timeout=0/" /etc/lightdm/lightdm.conf
-fi
-
-# Openbox Autostart — Screensaver/Blanking deaktiviert, Cursor versteckt
-mkdir -p "${KIOSK_HOME}/.config/openbox"
-cat > "${KIOSK_HOME}/.config/openbox/autostart" <<EOF
-# Screensaver, Blanking, DPMS komplett deaktivieren
-xset s off &
-xset s noblank &
-xset -dpms &
-xset s 0 0 &
-
-# Maus-Cursor nach 3 Sekunden Inaktivitaet verstecken
-unclutter -idle 3 -root &
-
-# Chromium Kiosk-Modus
-sleep 5
-chromium-browser --kiosk --no-first-run --noerrdialogs \
-  --disable-infobars --disable-session-crashed-bubble \
-  --disable-translate --disable-features=TranslateUI \
-  --overscroll-history-navigation=0 \
-  --check-for-update-interval=31536000 \
-  --disable-component-update \
-  --disable-background-networking \
-  --password-store=basic \
-  --disable-pinch \
-  "${WEB_URL}" &
-EOF
-chown -R "${KIOSK_USER}:" "${KIOSK_HOME}/.config" >> "$LOG_FILE" 2>&1 || true
-
-# systemd Kiosk-Service (Fallback)
-cat > "/etc/systemd/system/${KIOSK_SVC}.service" <<EOF
-[Unit]
-Description=Radxa Kiosk Browser
-After=${WEB_SVC}.service graphical.target
-Wants=graphical.target
-
-[Service]
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=${KIOSK_HOME}/.Xauthority
-ExecStartPre=/bin/bash -c "xset s off; xset -dpms; xset s noblank"
-ExecStartPre=/bin/sleep 6
-ExecStart=/usr/bin/chromium-browser --kiosk --no-first-run --noerrdialogs \
-  --disable-infobars --disable-session-crashed-bubble \
-  --disable-translate --disable-features=TranslateUI \
-  --overscroll-history-navigation=0 \
-  --check-for-update-interval=31536000 \
-  --disable-component-update \
-  --disable-background-networking \
-  --password-store=basic \
-  --disable-pinch \
-  ${WEB_URL}
-Restart=on-failure
-RestartSec=10
-User=${KIOSK_USER}
-
-[Install]
-WantedBy=graphical.target
-EOF
+# ── 10. Alte Kiosk-Dienste entfernen (falls vorhanden) ───────────
+for svc in radxa-kiosk; do
+  if systemctl is-enabled "$svc" 2>/dev/null | grep -q enabled; then
+    systemctl disable "$svc" >> "$LOG_FILE" 2>&1 || true
+    systemctl stop "$svc" >> "$LOG_FILE" 2>&1 || true
+    rm -f "/etc/systemd/system/${svc}.service"
+    ok "Alter Dienst entfernt: $svc"
+  fi
+done
 systemctl daemon-reload >> "$LOG_FILE" 2>&1
-systemctl enable "$KIOSK_SVC" >> "$LOG_FILE" 2>&1 || true
-ok "Kiosk konfiguriert fuer User: ${KIOSK_USER}"
 
-# ── 11. Zusammenfassung ─────────────────────────────────────────────
-DEVICE_IP=$(hostname -I | awk '{print $1}' || echo "Unbekannt")
+# ── 11. Zusammenfassung ─────────────────────────────────────────
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
 echo "  ║           Setup abgeschlossen                ║"
 echo "  ╠══════════════════════════════════════════════╣"
 printf  "  ║  Board:       %-31s║\n" "${BOARD_NAME}"
-printf  "  ║  GPIO-Chip:   %-31s║\n" "${GPIOCHIP}"
-printf  "  ║  Web-UI:      http://%-24s║\n" "${DEVICE_IP}"
-printf  "  ║  Service-IP:  http://%-24s║\n" "${SERVICE_IP}"
+printf  "  ║  GPIO:        %-31s║\n" "${GPIOCHIP}"
+printf  "  ║  Web-UI:      http://%-24s║\n" "${SERVICE_IP}"
 printf  "  ║  mDNS:        http://%-24s║\n" "${HOSTNAME_NEW}.local"
 printf  "  ║  SSH:         ssh %s@%-19s║\n" "${DEFAULT_USER}" "${SERVICE_IP}"
-printf  "  ║  Login:       %s / Gerade24632@%*s║\n" "${DEFAULT_USER}" "$((16 - ${#DEFAULT_USER}))" ""
-echo "  ║  Log-Datei:   /var/log/radxa_install.log     ║"
-echo "  ╠══════════════════════════════════════════════╣"
-echo "  ║  DHCP:        immer aktiv                    ║"
-echo "  ║  Screensaver: deaktiviert                    ║"
-echo "  ║  Standby:     deaktiviert                    ║"
+echo "  ║  Log:         /var/log/radxa_install.log     ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 
 if [ ${#FAILED_PKGS[@]} -ne 0 ]; then
-    warn "Achtung: Folgende Pakete konnten nicht installiert werden:"
-    warn "${FAILED_PKGS[*]}"
-    warn "Details dazu findest du in: /var/log/radxa_install.log"
-else
-    ok "Alle Pakete wurden erfolgreich installiert!"
+    warn "Fehlgeschlagene Pakete: ${FAILED_PKGS[*]}"
 fi
 
-echo ""
 warn "Neustart empfohlen: sudo reboot"
 echo ""
