@@ -223,7 +223,9 @@ PA_DAEMON_CFG="/etc/pulse/daemon.conf"
 
 # System-Modus erlauben
 if [ -f "$PA_DAEMON_CFG" ]; then
-    grep -q "^daemonize" "$PA_DAEMON_CFG" || echo "daemonize = yes" >> "$PA_DAEMON_CFG"
+    # daemonize=no: systemd verwaltet den Prozess, kein selbst-Daemonisieren
+    sed -i 's/^daemonize = yes/daemonize = no/' "$PA_DAEMON_CFG" 2>/dev/null || true
+    grep -q "^daemonize" "$PA_DAEMON_CFG" || echo "daemonize = no" >> "$PA_DAEMON_CFG"
     grep -q "^allow-exit" "$PA_DAEMON_CFG" || echo "allow-exit = no" >> "$PA_DAEMON_CFG"
 fi
 
@@ -232,6 +234,31 @@ usermod -aG pulse,pulse-access,audio root 2>/dev/null || true
 if [ -n "$DEFAULT_USER" ] && id "$DEFAULT_USER" &>/dev/null 2>&1; then
     usermod -aG pulse,pulse-access,audio "$DEFAULT_USER" 2>/dev/null || true
 fi
+
+# system.pa: Karten einzeln mit .nofail laden – HDMI-Fehler crashen PA nicht mehr.
+cat > "$PA_SYS_CFG" << 'PASYSPA'
+#!/usr/bin/pulseaudio -nF
+# PulseAudio system-mode – Radxa/RPi Audio-Appliance
+# Jede ALSA-Karte wird einzeln geladen. Fehler (z.B. HDMI ohne Display)
+# werden mit .nofail ignoriert, sodass PulseAudio stabil bleibt.
+
+load-module module-device-restore
+load-module module-stream-restore
+load-module module-card-restore
+
+# Karten 0-3 einzeln laden; Fehler werden ignoriert.
+.nofail
+load-module module-alsa-card device_id=0 tsched=no
+load-module module-alsa-card device_id=1 tsched=no
+load-module module-alsa-card device_id=2 tsched=no
+load-module module-alsa-card device_id=3 tsched=no
+.fail
+
+load-module module-native-protocol-unix
+load-module module-default-device-restore
+load-module module-always-sink
+load-module module-suspend-on-idle
+PASYSPA
 
 # systemd-Service fuer PulseAudio im System-Modus
 cat > "/etc/systemd/system/pulseaudio-system.service" <<'PASVC'
