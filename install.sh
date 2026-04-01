@@ -23,7 +23,7 @@ CFG_DIR="/etc/radxa_audio"
 SOUNDS_DIR="${CFG_DIR}/sounds"
 WEB_SVC="radxa-audio-web"
 GPIO_SVC="radxa-audio-gpio"
-SERVICE_IP="10.0.0.10"
+SERVICE_IP="192.168.1.120"
 HOSTNAME_NEW="textspeicher"
 
 # Logging
@@ -74,6 +74,7 @@ detect_default_user() {
     DEFAULT_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}') || true
   fi
   [ -z "$DEFAULT_USER" ] && DEFAULT_USER="pi"
+  return 0
 }
 
 detect_board
