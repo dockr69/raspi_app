@@ -1402,13 +1402,9 @@ def _get_cron_delay(time_s, days):
 def _schedule_runner():
     """Laueft im Hintergrund und fuehrt Schedules aus."""
     import datetime
-    last_check = None
     while True:
         time.sleep(30)  # Alle 30s pruefen
         now = datetime.datetime.now()
-        if last_check and now - last_check < datetime.timedelta(seconds=25):
-            continue
-        last_check = now
         schedules = _load_schedules()
         for s in schedules:
             if not s.get("enabled", True) or not s.get("id"):
@@ -1416,18 +1412,18 @@ def _schedule_runner():
             sched_id = s["id"]
             time_s = s.get("time", "")
             days = s.get("days", [0,1,2,3,4,5,6])
-            if not time_s:
+            if not time_s or not s.get("sound"):
                 continue
             delay, target = _get_cron_delay(time_s, days)
             # Wenn Zielzeit erreicht (Toleranz 60s)
             if delay < 60:
-                # Check ob schon ausgefuehrt in dieser Minute
-                last_run = _sched_jobstore.get(sched_id)
-                if last_run and abs((target - last_run).total_seconds()) < 120:
-                    continue
+                with _sched_lock:
+                    last_run = _sched_jobstore.get(sched_id)
+                    if last_run and abs((target - last_run).total_seconds()) < 120:
+                        continue
+                    _sched_jobstore[sched_id] = target
                 print(f"[SCHEDULE] Running: {s['sound']} at {target}", flush=True)
                 _run_scheduled(sched_id)
-                _sched_jobstore[sched_id] = target
 
 # Schedule-Runner als Daemon-Thread starten
 _schedule_thread = threading.Thread(target=_schedule_runner, daemon=True)
