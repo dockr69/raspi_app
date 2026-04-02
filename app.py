@@ -614,6 +614,8 @@ def api_net_apply():
 
     # ── Sofort anwenden ───────────────────────────────────────────────
     run(f"ip addr add {shlex.quote(ip)}/{prefix} dev {shlex.quote(iface)} 2>/dev/null")
+    # Alte Default-Route entfernen, dann neue setzen
+    run("ip route del default 2>/dev/null")
     run(f"ip route add default via {shlex.quote(gateway)} dev {shlex.quote(iface)} 2>/dev/null")
     try:
         with open("/etc/resolv.conf", "w") as f:

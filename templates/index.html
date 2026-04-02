@@ -297,13 +297,13 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
 <div class="term-panel" id="term-panel">
   <div class="term-topbar">
     <span class="term-title">▶ TERMINAL</span>
-    <span class="term-cwd" id="term-cwd-display">root@textspeicher:/root</span>
+    <span class="term-cwd" id="term-cwd-display">root@audio:/root</span>
     <button class="term-btn" onclick="termClear()" title="Leeren">⌫</button>
     <button class="term-btn" onclick="toggleTerminal()" title="Schließen">✕</button>
   </div>
   <div class="term-output" id="term-output"></div>
   <div class="term-input-row">
-    <span class="term-prompt" id="term-prompt">root@textspeicher:~#&nbsp;</span>
+    <span class="term-prompt" id="term-prompt">root@audio:~#&nbsp;</span>
     <input class="term-input" id="term-input" type="text" autocomplete="off"
            autocorrect="off" autocapitalize="off" spellcheck="false"
            placeholder="Befehl eingeben…">
@@ -317,7 +317,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
   <div class="ds-topbar">
     <div class="tlogo"><div class="tpulse"></div>AUDIO</div>
     <div class="tsep"></div>
-    <div class="tchip" id="ds-mode-chip"><span id="ds-mode-label">Online</span></div>
     <div class="tchip" id="ds-chip-static">IP: <b id="ds-static-ip-chip">–</b></div>
     <div class="tchip" id="ds-chip-service">Service: <b>10.0.0.10</b></div>
     <div class="tchip" id="ds-ssh-chip" style="display:none">SSH <b id="ds-ssh-val">–</b></div>
@@ -339,7 +338,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="ip-card service">
         <div class="ip-card-label">Service-IP</div>
         <div class="ip-card-ip">10.0.0.10</div>
-        <div class="ip-card-sub">textspeicher.local</div>
+        <div class="ip-card-sub" id="ds-service-mdns">–</div>
         <div class="ip-card-badge">✓ Aktiv</div>
       </div>
     </div>
@@ -364,7 +363,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="ds-tile-icon">🌐</div>
         <div>
           <div class="ds-tile-label">mDNS</div>
-          <div class="ds-tile-val green" style="font-size:12px">textspeicher.local</div>
+          <div class="ds-tile-val green" id="ds-mdns-val" style="font-size:12px">–</div>
         </div>
       </div>
       <div class="ds-tile">
@@ -480,17 +479,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="spill" id="ds-backup-status"></div>
     </div>
 
-    <!-- SSH Info -->
-    <div class="card" style="padding:16px 22px" id="ds-ssh-card">
-      <div class="card-title">🖥 SSH-Zugang</div>
-      <div style="font-family:var(--mono);font-size:13px;color:var(--t2);line-height:2.4">
-        <span id="ds-ssh-cmd" style="color:var(--green)">ssh pi@10.0.0.10</span>
-        &nbsp;·&nbsp;
-        <span style="color:var(--t3)">oder</span>
-        &nbsp;
-        <span id="ds-ssh-cmd2" style="color:var(--green)">ssh pi@textspeicher.local</span>
-      </div>
-    </div>
 
     <!-- System-Aktionen -->
     <div class="card" style="padding:14px 22px">
@@ -526,7 +514,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <button class="ds-tab" id="s-tab-audio" onclick="settingsTab('audio')">🎚 Audio</button>
         <button class="ds-tab" id="s-tab-gpio" onclick="settingsTab('gpio')">🔌 GPIO</button>
         <button class="ds-tab" id="s-tab-hostname" onclick="settingsTab('hostname')">🏷 Hostname</button>
-        <button class="ds-tab" id="s-tab-mode" onclick="settingsTab('mode')">⚡ Modus</button>
       </div>
     </div>
 
@@ -567,8 +554,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       </div>
       <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
         <span style="color:var(--t3)">Service-IP:</span> <b style="color:var(--warn)">10.0.0.10</b> (fest, nicht änderbar)<br>
-        <span style="color:var(--t3)">mDNS:</span> <b style="color:var(--acc)">http://textspeicher.local</b><br>
-        <span style="color:var(--t3)">SSH:</span> <b style="color:var(--green)">ssh pi@10.0.0.10</b>
+        <span style="color:var(--t3)">mDNS:</span> <b style="color:var(--acc)" id="s-net-mdns">–</b>
       </div>
     </div>
 
@@ -701,25 +687,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       </div>
     </div>
 
-    <!-- ── Tab: Modus ── -->
-    <div id="s-pane-mode" style="display:none">
-      <div class="card">
-        <div class="card-title">⚡ Betriebsmodus</div>
-        <div style="display:flex;gap:14px;margin-bottom:14px">
-          <div class="mode-card" id="s-mode-online" onclick="sSelectMode('online')" style="flex:1;cursor:pointer;padding:18px;border:2px solid var(--border2);border-radius:8px;text-align:center">
-            <div style="font-size:24px;margin-bottom:6px">🌐</div>
-            <div style="font-family:var(--mono);font-weight:700;font-size:14px">Online</div>
-            <div style="font-size:11px;color:var(--t2);margin-top:4px">HTTP-Trigger via WiFi-Buttons + GPIO</div>
-          </div>
-          <div class="mode-card" id="s-mode-offline" onclick="sSelectMode('offline')" style="flex:1;cursor:pointer;padding:18px;border:2px solid var(--border2);border-radius:8px;text-align:center">
-            <div style="font-size:24px;margin-bottom:6px">🔌</div>
-            <div style="font-family:var(--mono);font-weight:700;font-size:14px">Offline</div>
-            <div style="font-size:11px;color:var(--t2);margin-top:4px">Nur GPIO-Taster, kein Netzwerk nötig</div>
-          </div>
-        </div>
-        <div class="spill" id="s-mode-status"></div>
-      </div>
-    </div>
 
   </div>
 </div>
@@ -801,13 +768,6 @@ async function loadDashboard() {
   audioAliases = st.audio_aliases || {};
   const isOffline = appMode === 'offline';
 
-  // Modus-Chip
-  const modeLabel = document.getElementById('ds-mode-label');
-  const modeChip  = document.getElementById('ds-mode-chip');
-  modeLabel.textContent = isOffline ? '🔌 Offline' : '🌐 Online';
-  modeChip.style.borderColor = isOffline ? 'rgba(179,157,255,.3)' : '';
-  modeLabel.style.color = isOffline ? 'var(--purple)' : '';
-
   // Statische IP
   const sip = st.static_ip || '';
   const hasStaticIp = sip && sip !== '–';
@@ -840,14 +800,6 @@ async function loadDashboard() {
   if (st.ssh_active) { sshEl.textContent = 'aktiv'; sshEl.className = 'ds-tile-val green'; }
   else               { sshEl.textContent = 'inaktiv'; sshEl.className = 'ds-tile-val red'; }
 
-  const sshCmd = `ssh pi@${sip !== '–' ? sip : SERVICE_IP}`;
-  document.getElementById('ds-ssh-cmd').textContent  = `ssh pi@${sip}`;
-  document.getElementById('ds-ssh-cmd2').textContent = `ssh pi@textspeicher.local`;
-
-  // Im Offline-Modus: SSH zeigt nur Service-IP (kein Router vorhanden)
-  if (isOffline) {
-    document.getElementById('ds-ssh-cmd').textContent = `ssh pi@${SERVICE_IP}`;
-  }
 
   // Lautstärke-Slider befüllen
   const a = st.config?.audio || {};
@@ -865,6 +817,16 @@ async function loadDashboard() {
   if (st.usb_audio) {
     document.getElementById('ds-usb-audio-tile').style.display = '';
   }
+  // Hostname dynamisch setzen
+  const hn = st.hostname || 'audio';
+  const mdns = hn + '.local';
+  document.getElementById('ds-service-mdns').textContent = mdns;
+  document.getElementById('ds-mdns-val').textContent = mdns;
+  if (document.getElementById('s-net-mdns')) {
+    document.getElementById('s-net-mdns').textContent = 'http://' + mdns;
+  }
+  // Terminal-Prompt aktualisieren
+  if (window._updateTermHostname) window._updateTermHostname(hn);
   // GPIO-Pins vom Server übernehmen
   if (st.gpio_pins && st.gpio_pins.length) {
     GPIO_PINS = st.gpio_pins;
@@ -1200,7 +1162,7 @@ function closeSettings() {
   loadDashboard();
 }
 function settingsTab(tab) {
-  ['network','audio','gpio','hostname','mode'].forEach(t => {
+  ['network','audio','gpio','hostname'].forEach(t => {
     const pane = document.getElementById(`s-pane-${t}`);
     const btn  = document.getElementById(`s-tab-${t}`);
     if(pane) pane.style.display = t===tab ? 'block' : 'none';
@@ -1233,8 +1195,6 @@ async function loadSettingsData() {
     lbEl.textContent = st.loopback_active ? 'aktiv' : 'inaktiv';
     lbEl.style.color = st.loopback_active ? 'var(--green)' : 'var(--red)';
   }
-  // Modus
-  sUpdateModeCards(appMode);
   // Dropdowns laden
   await sLoadIfaces();
   if(n.interface) document.getElementById('s-net-iface').value = n.interface;
@@ -1407,22 +1367,6 @@ async function sSaveHostname() {
   pill('s-hostname-status', r.ok ? `✓ Hostname: ${r.hostname}.local` : '✗ '+(r.msg||'Fehler'), r.ok?'ok':'err');
 }
 
-// Settings: Modus
-function sUpdateModeCards(mode) {
-  const online  = document.getElementById('s-mode-online');
-  const offline = document.getElementById('s-mode-offline');
-  online.style.borderColor  = mode==='online'  ? 'var(--acc)' : 'var(--border2)';
-  online.style.background   = mode==='online'  ? 'var(--acc-dim)' : '';
-  offline.style.borderColor = mode==='offline' ? 'var(--purple)' : 'var(--border2)';
-  offline.style.background  = mode==='offline' ? 'var(--purple-dim)' : '';
-}
-async function sSelectMode(mode) {
-  appMode = mode;
-  sUpdateModeCards(mode);
-  await api('POST', '/api/mode', {mode});
-  pill('s-mode-status', mode==='online' ? '✓ Online-Modus aktiv' : '✓ Offline-Modus aktiv (nur GPIO)', 'ok');
-}
-
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   const st=await api('GET','/api/status');
@@ -1463,16 +1407,20 @@ document.getElementById('pw-modal').addEventListener('click',e=>{if(e.target===e
   const input   = document.getElementById('term-input');
   const prompt  = document.getElementById('term-prompt');
   const cwdDisp = document.getElementById('term-cwd-display');
-  let history = [], histIdx = -1, termOpen = false;
+  let history = [], histIdx = -1, termOpen = false, termHostname = 'audio';
 
   function formatCwd(cwd) {
     return cwd.replace(/^\/root$/, '~').replace(/^\/root\//, '~/');
   }
   function updatePrompt(cwd) {
     const short = formatCwd(cwd);
-    prompt.textContent  = `root@textspeicher:${short}# `;
-    cwdDisp.textContent = `root@textspeicher:${cwd}`;
+    prompt.textContent  = `root@${termHostname}:${short}# `;
+    cwdDisp.textContent = `root@${termHostname}:${cwd}`;
   }
+  window._updateTermHostname = function(hn) {
+    termHostname = hn;
+    updatePrompt('/root');
+  };
   function appendLine(text, cls) {
     const div = document.createElement('div');
     div.className = 'term-line' + (cls ? ' ' + cls : '');
