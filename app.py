@@ -1137,62 +1137,69 @@ def _write_gpio_script(cfg):
     # Uses python3-gpiod (works on Radxa ROCK 3A, 4C+ and all libgpiod boards)
     # Supports gpiod 2.x API (Debian Bookworm+) with automatic fallback to gpiod 1.x
     script = f"""#!/usr/bin/env python3
-# GPIO-Daemon – auto-generiert von Radxa Audio Konfigurator
+# GPIO-Daemon – auto-generiert von Raspi Audio Konfigurator
 import subprocess, time, os, sys, threading
 
-os.environ.setdefault('PULSE_SERVER', 'unix:/var/run/pulse/native')
+os.environ['PULSE_SERVER'] = 'unix:/run/pulse/native'
 
 MP3_FOLDER  = {repr(str(MP3_FOLDER))}
 LINE_SOURCE = {repr(src)}
 GPIO_MAP    = {repr(gpio_map)}
 CHIP        = {repr(GPIOCHIP)}
-DEBOUNCE    = 0.2
+DEBOUNCE    = 0.5  # 500ms – verhindert Doppelausloesung bei prellenden Tastern
 
 def pactl_available():
-    '''Prueft ob PulseAudio erreichbar ist.'''
     try:
         r = subprocess.run(['pactl', 'info'], capture_output=True, timeout=2)
         return r.returncode == 0
     except Exception:
         return False
 
-def play(entry):
-    stem   = entry['stem']
-    repeat = entry.get('repeat', 1)
-    path   = os.path.join(MP3_FOLDER, stem + '.mp3')
-    if not os.path.isfile(path):
-        print(f"[GPIO] File not found: {path}", file=sys.stderr)
-        return
-    # PulseAudio verfuegbarkeit pruefen
-    if not pactl_available():
-        print(f"[GPIO] PulseAudio nicht erreichbar, ueberspringe", file=sys.stderr)
-        return
-    try:
-        subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'], timeout=2)
-    except Exception as e:
-        print(f"[GPIO] Mute failed: {e}", file=sys.stderr)
-    for i in range(repeat):
-        try:
-            r = subprocess.run(['mpg123', '-q', path], timeout=300)
-        except subprocess.TimeoutExpired:
-            print(f"[GPIO] Playback timeout", file=sys.stderr)
-        except Exception as e:
-            print(f"[GPIO] Playback error: {e}", file=sys.stderr)
-    try:
-        subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'], timeout=2)
-    except Exception as e:
-        print(f"[GPIO] Unmute failed: {e}", file=sys.stderr)
+_last  = {{}}
+_busy  = {{}}   # pro Pin: True waehrend Sound laeuft
+_lock  = threading.Lock()
 
-_last = {{}}
-_lock = threading.Lock()
-
-def _debounce(pin):
+def _can_trigger(pin):
+    '''Gibt True zurueck wenn Pin weder gerade spielt noch im Debounce-Fenster ist.'''
     now = time.monotonic()
     with _lock:
+        if _busy.get(pin):
+            return False
         if now - _last.get(pin, 0) < DEBOUNCE:
             return False
         _last[pin] = now
+        _busy[pin] = True
     return True
+
+def play(pin, entry):
+    stem   = entry['stem']
+    repeat = entry.get('repeat', 1)
+    path   = os.path.join(MP3_FOLDER, stem + '.mp3')
+    try:
+        if not os.path.isfile(path):
+            print(f"[GPIO] File not found: {{path}}", file=sys.stderr)
+            return
+        if not pactl_available():
+            print(f"[GPIO] PulseAudio nicht erreichbar", file=sys.stderr)
+            return
+        try:
+            subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'], timeout=2)
+        except Exception as e:
+            print(f"[GPIO] Mute failed: {{e}}", file=sys.stderr)
+        for _ in range(repeat):
+            try:
+                subprocess.run(['mpg123', '-q', path], timeout=300)
+            except subprocess.TimeoutExpired:
+                print(f"[GPIO] Playback timeout", file=sys.stderr)
+            except Exception as e:
+                print(f"[GPIO] Playback error: {{e}}", file=sys.stderr)
+        try:
+            subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'], timeout=2)
+        except Exception as e:
+            print(f"[GPIO] Unmute failed: {{e}}", file=sys.stderr)
+    finally:
+        with _lock:
+            _busy[pin] = False
 
 try:
     import gpiod
@@ -1220,8 +1227,9 @@ if hasattr(gpiod, 'request_lines'):
             if req.wait_edge_events(timeout=timedelta(seconds=1)):
                 for ev in req.read_edge_events():
                     entry = GPIO_MAP.get(ev.line_offset)
-                    if entry and _debounce(ev.line_offset):
-                        threading.Thread(target=play, args=(entry,), daemon=True).start()
+                    pin = ev.line_offset
+                    if entry and _can_trigger(pin):
+                        threading.Thread(target=play, args=(pin, entry), daemon=True).start()
 else:
     # gpiod 1.x
     chip  = gpiod.Chip(CHIP)
@@ -1240,8 +1248,8 @@ else:
                     if ev.type == gpiod.LineEvent.FALLING_EDGE:
                         pin   = line.offset()
                         entry = GPIO_MAP.get(pin)
-                        if entry and _debounce(pin):
-                            threading.Thread(target=play, args=(entry,), daemon=True).start()
+                        if entry and _can_trigger(pin):
+                            threading.Thread(target=play, args=(pin, entry), daemon=True).start()
     finally:
         lines.release()
 """
