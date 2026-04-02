@@ -100,19 +100,6 @@ def _audio_alias(pa_name):
         return "Internal 3.5mm Audio Jack"
     return pa_name
 
-# ── Hostname aus Config ──────────────────────────────────────────────────────
-def get_hostname():
-    cfg = load_cfg()
-    # Config hat Vorrang; Fallback: echter System-Hostname
-    h = cfg.get("hostname", "")
-    if not h:
-        try:
-            import socket
-            h = socket.gethostname().split('.')[0]
-        except Exception:
-            h = DEFAULT_HOSTNAME
-    return h
-
 # ── Loopback-Management ─────────────────────────────────────────────────────
 _loopback_module_id = None
 
@@ -182,9 +169,6 @@ def _ensure_default_config():
             "gateway": "192.168.1.1",
             "dns": "8.8.8.8",
         }
-        changed = True
-    if "hostname" not in cfg:
-        cfg["hostname"] = DEFAULT_HOSTNAME
         changed = True
     if "mode" not in cfg:
         cfg["mode"] = "online"
@@ -549,7 +533,6 @@ def play_legacy(mp3name):
 def api_status():
     cfg = load_cfg()
     net = cfg.get("network", {})
-    hostname = cfg.get("hostname", DEFAULT_HOSTNAME)
     # SSH-Status
     ssh = run("systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null")
     # USB-Soundkarten erkennen
@@ -561,7 +544,6 @@ def api_status():
     return jsonify({
         "setup_done":    True,
         "service_ip":    SERVICE_IP,
-        "hostname":      hostname,
         "static_ip":     net.get("ip", ""),
         "static_iface":  net.get("interface", ""),
         "current_ips":   get_current_ips(),
@@ -1185,28 +1167,6 @@ else:
     os.chmod("/usr/local/bin/radxa_gpio.py", 0o755)
     run("systemctl restart radxa-audio-gpio 2>/dev/null")
 
-# ── API: Hostname ────────────────────────────────────────────────────────────
-@app.route('/api/hostname', methods=['GET', 'POST'])
-def api_hostname():
-    if request.method == 'GET':
-        return jsonify({"hostname": get_hostname()})
-    d = request.json or {}
-    new_hostname = re.sub(r'[^a-zA-Z0-9\-]', '', d.get("hostname", "").strip().lower())
-    if not new_hostname or len(new_hostname) < 2:
-        return jsonify({"ok": False, "msg": "Hostname zu kurz (min. 2 Zeichen)"}), 400
-    if len(new_hostname) > 63:
-        return jsonify({"ok": False, "msg": "Hostname zu lang (max. 63 Zeichen)"}), 400
-    cfg = load_cfg()
-    cfg["hostname"] = new_hostname
-    save_cfg(cfg)
-    # System-Hostname setzen
-    run(f"hostnamectl set-hostname {shlex.quote(new_hostname)} 2>/dev/null")
-    # /etc/hosts aktualisieren
-    run(f"sed -i 's/127\\.0\\.1\\.1.*/127.0.1.1\\t{new_hostname}/' /etc/hosts")
-    # Avahi neustarten für mDNS
-    run("systemctl restart avahi-daemon 2>/dev/null")
-    return jsonify({"ok": True, "hostname": new_hostname})
-
 # ── API: Terminal ─────────────────────────────────────────────────────────────
 _TERM_BLOCKED = re.compile(
     r'(rm\s+-rf\s+/|mkfs\b|dd\s+if=|:\(\)\s*\{|fork\s*bomb'
@@ -1490,10 +1450,8 @@ for _tmp in globmod.glob("/tmp/_radxa_*"):
 @app.route('/')
 def index():
     cfg = load_cfg()
-    hostname = cfg.get("hostname", DEFAULT_HOSTNAME)
     return render_template('index.html',
                            service_ip=SERVICE_IP,
-                           hostname=hostname,
                            mode=cfg.get("mode", "online"))
 
 if __name__ == '__main__':

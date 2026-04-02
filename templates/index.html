@@ -338,7 +338,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="ip-card service">
         <div class="ip-card-label">Service-IP</div>
         <div class="ip-card-ip">10.0.0.10</div>
-        <div class="ip-card-sub" id="ds-service-mdns">–</div>
         <div class="ip-card-badge">✓ Aktiv</div>
       </div>
     </div>
@@ -357,13 +356,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div>
           <div class="ds-tile-label">SSH</div>
           <div class="ds-tile-val" id="ds-ssh-status">–</div>
-        </div>
-      </div>
-      <div class="ds-tile">
-        <div class="ds-tile-icon">🌐</div>
-        <div>
-          <div class="ds-tile-label">mDNS</div>
-          <div class="ds-tile-val green" id="ds-mdns-val" style="font-size:12px">–</div>
         </div>
       </div>
       <div class="ds-tile">
@@ -513,7 +505,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <button class="ds-tab active" id="s-tab-network" onclick="settingsTab('network')">🌐 Netzwerk</button>
         <button class="ds-tab" id="s-tab-audio" onclick="settingsTab('audio')">🎚 Audio</button>
         <button class="ds-tab" id="s-tab-gpio" onclick="settingsTab('gpio')">🔌 GPIO</button>
-        <button class="ds-tab" id="s-tab-hostname" onclick="settingsTab('hostname')">🏷 Hostname</button>
       </div>
     </div>
 
@@ -587,7 +578,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
               <select id="s-audio-sink" style="flex:1"></select>
               <button class="btn btn-ghost btn-sm" onclick="sDetectSinks()">↺</button>
             </div>
-            <div class="fhint">Audio-Ausgang (USB Audio / 3.5mm Jack)</div>
+            <div class="fhint">Audio-Ausgang (USB Audio)</div>
           </div>
         </div>
         <div class="frow">
@@ -642,23 +633,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       </div>
     </div>
 
-    <!-- ── Tab: Hostname ── -->
-    <div id="s-pane-hostname" style="display:none">
-      <div class="card">
-        <div class="card-title">🏷 Hostname & mDNS</div>
-        <div class="frow">
-          <div class="flabel">Hostname</div>
-          <div class="fwrap">
-            <input type="text" id="s-hostname" placeholder="hostname" autocomplete="off">
-            <div class="fhint">Erreichbar als <b id="s-hostname-mdns">–</b></div>
-          </div>
-        </div>
-        <div class="brow">
-          <button class="btn btn-green btn-sm" onclick="sSaveHostname()">✓ Speichern</button>
-        </div>
-        <div class="spill" id="s-hostname-status"></div>
-      </div>
-    </div>
 
 
   </div>
@@ -790,11 +764,6 @@ async function loadDashboard() {
   if (st.usb_audio) {
     document.getElementById('ds-usb-audio-tile').style.display = '';
   }
-  // Hostname dynamisch setzen
-  const hn = st.hostname || 'audio';
-  const mdns = hn + '.local';
-  document.getElementById('ds-service-mdns').textContent = mdns;
-  document.getElementById('ds-mdns-val').textContent = mdns;
   if (document.getElementById('s-net-mdns')) {
     document.getElementById('s-net-mdns').textContent = 'http://' + mdns;
   }
@@ -1086,14 +1055,13 @@ function closeSettings() {
   loadDashboard();
 }
 function settingsTab(tab) {
-  ['network','audio','gpio','hostname'].forEach(t => {
+  ['network','audio','gpio'].forEach(t => {
     const pane = document.getElementById(`s-pane-${t}`);
     const btn  = document.getElementById(`s-tab-${t}`);
     if(pane) pane.style.display = t===tab ? 'block' : 'none';
     if(btn)  btn.className = 'ds-tab' + (t===tab ? ' active' : '');
   });
   if (tab === 'gpio') sLoadGpio();
-  if (tab === 'hostname') sLoadHostname();
 }
 async function loadSettingsData() {
   const st = await api('GET','/api/status');
@@ -1238,22 +1206,6 @@ async function sSaveGpio() {
   pill('s-gpio-status',`✓ ${Object.keys(gpio).length} Mapping(s) gespeichert`,'ok');
 }
 
-// Settings: Hostname
-async function sLoadHostname() {
-  const r = await api('GET','/api/hostname');
-  document.getElementById('s-hostname').value = r.hostname || '';
-  document.getElementById('s-hostname-mdns').textContent = r.hostname ? r.hostname + '.local' : '–';
-}
-document.getElementById('s-hostname')?.addEventListener('input', function() {
-  const v = this.value.replace(/[^a-zA-Z0-9\-]/g, '').toLowerCase();
-  document.getElementById('s-hostname-mdns').textContent = v ? v + '.local' : '–';
-});
-async function sSaveHostname() {
-  const hostname = document.getElementById('s-hostname').value.trim();
-  if (!hostname || hostname.length < 2) { pill('s-hostname-status','Hostname zu kurz','err'); return; }
-  const r = await api('POST','/api/hostname',{hostname});
-  pill('s-hostname-status', r.ok ? `✓ Hostname: ${r.hostname}.local` : '✗ '+(r.msg||'Fehler'), r.ok?'ok':'err');
-}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
