@@ -124,7 +124,7 @@ def ensure_loopback():
     r = run(f"pactl load-module module-loopback "
             f"source={shlex.quote(source)} "
             f"sink={shlex.quote(sink)} "
-            f"latency_msec=50")
+            f"latency_msec=200")
     if r["ok"]:
         _loopback_module_id = r["out"].strip()
         print(f"[AUDIO] Loopback geladen: {source} → {sink} (ID {_loopback_module_id})", flush=True)
