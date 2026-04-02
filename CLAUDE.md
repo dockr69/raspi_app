@@ -56,11 +56,11 @@ sudo reboot
 ## Wichtige Konstanten in app.py
 
 ```python
-CONFIG_FILE    = "/etc/raspi_audio/config.json"
-MP3_FOLDER     = "/etc/raspi_audio/sounds"
-BOARD_FILE     = "/etc/raspi_audio/board.json"
-SECRET_KEY_FILE= "/etc/raspi_audio/.secret_key"
-SERVICE_IP     = "10.0.0.10"
+CONFIG_FILE     = "/etc/raspi_audio/config.json"
+MP3_FOLDER      = "/etc/raspi_audio/sounds"
+BOARD_FILE      = "/etc/raspi_audio/board.json"
+SECRET_KEY_FILE = "/etc/raspi_audio/.secret_key"
+SERVICE_IP      = "10.0.0.10"
 ```
 
 ---
@@ -72,6 +72,7 @@ SERVICE_IP     = "10.0.0.10"
 - Loopback (Line-In → Line-Out) startet im Background-Thread beim App-Start
 - Config-Writes sind atomar (`.tmp` + `os.replace`)
 - Watchdog: 60s – blockierende Calls beim Start killen den Service
+- USB Audio (card 1) wird priorisiert vor internem 3.5mm Jack (card 0)
 
 ---
 
