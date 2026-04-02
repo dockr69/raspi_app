@@ -215,7 +215,7 @@ def _load_secret_key():
         os.chmod(SECRET_KEY_FILE, 0o600)
         return k
 
-app.secret_key = _load_secret_key()
+# Secret Key wird nach _secret_lock Definition gesetzt (siehe unten)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def run(cmd, timeout=20):
@@ -231,6 +231,8 @@ def run(cmd, timeout=20):
 
 _cfg_lock = threading.Lock()
 _secret_lock = threading.Lock()
+
+app.secret_key = _load_secret_key()
 
 def load_cfg():
     """Liest Config mit Lock fuer Thread-Safety."""
@@ -1506,7 +1508,6 @@ def api_schedules():
         schedules.append({"id": sid, "sound": sound, "time": time_s, "days": days, "enabled": enabled})
     cfg["schedules"] = schedules
     save_cfg(cfg)
-    _schedule_next(sid)
     return jsonify({"ok": True, "id": sid})
 
 @app.route('/api/schedules/delete', methods=['POST'])
@@ -1516,13 +1517,11 @@ def api_schedules_delete():
     cfg["schedules"] = [s for s in cfg.get("schedules", []) if s.get("id") != sid]
     save_cfg(cfg)
     with _sched_lock:
-        old = _sched_timers.pop(sid, None)
-        if old:
-            old.cancel()
+        _sched_jobstore.pop(sid, None)
     return jsonify({"ok": True})
 
 # Schedules beim Start laden
-_init_schedules()
+_schedule_all()
 
 # ── Tmp-Cleanup beim Start ──────────────────────────────────────────────────
 for _tmp in globmod.glob("/tmp/_radxa_*"):
