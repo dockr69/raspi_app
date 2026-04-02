@@ -43,27 +43,30 @@ detect_board() {
 
   if echo "$model" | grep -qi "raspberry.*pi.*4"; then
     BOARD="rpi4"; BOARD_NAME="Raspberry Pi 4"
+    GPIOCHIP="/dev/gpiochip4"
   elif echo "$model" | grep -qi "raspberry.*pi.*3"; then
     BOARD="rpi3"; BOARD_NAME="Raspberry Pi 3B"
-  elif echo "$model" | grep -qi "raspberry.*pi"; then
-    BOARD="rpi"; BOARD_NAME="Raspberry Pi"
+    GPIOCHIP="/dev/gpiochip0"
   else
     BOARD="rpi"; BOARD_NAME="${model:-Raspberry Pi}"
+    GPIOCHIP="/dev/gpiochip0"
   fi
 }
 
-detect_gpio_chip() {
-  GPIOCHIP="/dev/gpiochip0"
-  [ -e /dev/gpiochip4 ] && echo "$BOARD" | grep -q "rpi" && GPIOCHIP="/dev/gpiochip4"
-  GPIO_PINS="4,17,18,22,23,24,25,27"
+detect_gpio_pins() {
+  if [ "$BOARD" = "rpi4" ]; then
+    GPIO_PINS="4,17,18,22,23,24,25,27"
+  else
+    GPIO_PINS="4,17,18,22,23,24,25,27"
+  fi
 }
 
 detect_default_user() {
   DEFAULT_USER="${SUDO_USER:-}"
-  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
+  if [ -z "$DEFAULT_USER" ] || ! id "$DEFAULT_USER" >/dev/null 2>&1; then
     DEFAULT_USER="pi"
   fi
-  if ! id "$DEFAULT_USER" &>/dev/null 2>&1; then
+  if ! id "$DEFAULT_USER" >/dev/null 2>&1; then
     DEFAULT_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}') || true
   fi
   [ -z "$DEFAULT_USER" ] && DEFAULT_USER="pi"
@@ -71,7 +74,7 @@ detect_default_user() {
 }
 
 detect_board
-detect_gpio_chip
+detect_gpio_pins
 detect_default_user
 
 echo ""
@@ -356,26 +359,32 @@ load-module module-loopback latency_msec=50
 .fail
 PASYSPA
 
-# systemd-Service fuer PulseAudio im System-Modus
-cat > "/etc/systemd/system/pulseaudio-system.service" <<'PASVC'
+# systemd-Service fuer PulseAudio (User-Modus, aber als root fuer Headless)
+# User-Modus ist stabiler als --system bei USB-Audio-Geraeten
+cat > "/etc/systemd/system/pulseaudio.service" <<'PASVC'
 [Unit]
-Description=PulseAudio System-Wide Server
+Description=PulseAudio Sound Server
 After=sound.target
+Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/pulseaudio --system --disallow-exit --disallow-module-loading=0 --log-target=journal
+Type=notify
+ExecStart=/usr/bin/pulseaudio --daemonize=no --log-target=journal --no-cpu-limit
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
+LimitNICE=-20
+LimitRTPRIO=100
 
 [Install]
 WantedBy=multi-user.target
 PASVC
 systemctl daemon-reload >> "$LOG_FILE" 2>&1
-systemctl enable pulseaudio-system >> "$LOG_FILE" 2>&1
-systemctl start  pulseaudio-system >> "$LOG_FILE" 2>&1 || true
+systemctl enable pulseaudio >> "$LOG_FILE" 2>&1
+systemctl start  pulseaudio >> "$LOG_FILE" 2>&1 || true
 # User-Session PulseAudio deaktivieren (verhindert Konflikte)
 systemctl --global disable pulseaudio.service pulseaudio.socket 2>/dev/null || true
-ok "PulseAudio System-Modus aktiv"
+ok "PulseAudio User-Modus aktiv (stabiler)"
 
 # ── 7. RPi Audio-Overlay (falls Raspberry Pi) ──────────────────
 if echo "$BOARD" | grep -q "rpi"; then
@@ -415,18 +424,21 @@ log "Erstelle Web-Service..."
 cat > "/etc/systemd/system/${WEB_SVC}.service" <<EOF
 [Unit]
 Description=Audio Konfigurator (Web-UI Port 80)
-After=network.target sound.target avahi-daemon.service pulseaudio-system.service
-Wants=avahi-daemon.service pulseaudio-system.service
+After=network.target sound.target avahi-daemon.service pulseaudio.service
+Wants=avahi-daemon.service pulseaudio.service
 
 [Service]
+Type=simple
 ExecStartPre=${APP_DIR}/startup-network.sh
 ExecStart=/usr/bin/python3 ${APP_DIR}/app.py
 WorkingDirectory=${APP_DIR}
 Restart=always
-RestartSec=3
+RestartSec=5
 User=root
 Environment=PYTHONUNBUFFERED=1
 Environment=PULSE_SERVER=unix:/var/run/pulse/native
+# Watchdog fuer 24/7-Stabilitaet
+WatchdogSec=60s
 
 [Install]
 WantedBy=multi-user.target

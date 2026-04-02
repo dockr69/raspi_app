@@ -195,16 +195,25 @@ def _ensure_default_config():
 
 # ── Secret Key (persistent, damit Sessions nach Neustart gültig bleiben) ──────
 def _load_secret_key():
-    if os.path.exists(SECRET_KEY_FILE):
-        with open(SECRET_KEY_FILE) as f:
-            k = f.read().strip()
-            if k:
-                return k
-    k = secrets.token_hex(32)
-    with open(SECRET_KEY_FILE, 'w') as f:
-        f.write(k)
-    os.chmod(SECRET_KEY_FILE, 0o600)
-    return k
+    """Liest oder erstellt Secret Key mit Lock fuer Thread-Safety."""
+    with _secret_lock:
+        if os.path.exists(SECRET_KEY_FILE):
+            try:
+                with open(SECRET_KEY_FILE) as f:
+                    k = f.read().strip()
+                    if k:
+                        return k
+            except Exception:
+                pass
+        k = secrets.token_hex(32)
+        tmp = SECRET_KEY_FILE + ".tmp"
+        with open(tmp, 'w') as f:
+            f.write(k)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, SECRET_KEY_FILE)
+        os.chmod(SECRET_KEY_FILE, 0o600)
+        return k
 
 app.secret_key = _load_secret_key()
 
@@ -221,8 +230,10 @@ def run(cmd, timeout=20):
         return {"out": "", "err": str(e), "ok": False}
 
 _cfg_lock = threading.Lock()
+_secret_lock = threading.Lock()
 
 def load_cfg():
+    """Liest Config mit Lock fuer Thread-Safety."""
     try:
         with _cfg_lock:
             with open(CONFIG_FILE) as f:
@@ -231,10 +242,13 @@ def load_cfg():
         return {}
 
 def save_cfg(data):
+    """Speichert Config atomar mit Lock."""
     with _cfg_lock:
         tmp = CONFIG_FILE + ".tmp"
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, CONFIG_FILE)
 
 def sanitize(name):
@@ -984,6 +998,9 @@ def api_mp3_trigger():
     _write_gpio_script(cfg)
     return jsonify({"ok": True})
 
+# Max Dateigroesse fuer Uploads (50MB)
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+
 @app.route('/api/upload', methods=['POST'])
 def api_upload():
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -995,6 +1012,13 @@ def api_upload():
     jobs = []
     for f in request.files.getlist('file'):
         orig = f.filename or "audio"
+        # Dateigroesse pruefen BEFORE speichern
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(0)
+        if size > MAX_UPLOAD_SIZE:
+            jobs.append({"orig": orig, "error": f"Datei zu gross ({size//1024}KB > 50MB)"})
+            continue
         stem = sanitize(os.path.splitext(orig)[0]) or "audio"
         ext  = re.sub(r'[^a-zA-Z0-9.]', '', os.path.splitext(orig)[1].lower())
         tmp  = f"/tmp/_radxa_{stem}_{os.getpid()}_{len(jobs)}{ext}"
@@ -1104,16 +1128,40 @@ GPIO_MAP    = {repr(gpio_map)}
 CHIP        = {repr(GPIOCHIP)}
 DEBOUNCE    = 0.2
 
+def pactl_available():
+    """Prueft ob PulseAudio erreichbar ist."""
+    try:
+        r = subprocess.run(['pactl', 'info'], capture_output=True, timeout=2)
+        return r.returncode == 0
+    except Exception:
+        return False
+
 def play(entry):
     stem   = entry['stem']
     repeat = entry.get('repeat', 1)
     path   = os.path.join(MP3_FOLDER, stem + '.mp3')
     if not os.path.isfile(path):
+        print(f"[GPIO] File not found: {path}", file=sys.stderr)
         return
-    subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'])
-    for _ in range(repeat):
-        subprocess.run(['mpg123', '-q', path])
-    subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'])
+    # PulseAudio verfuegbarkeit pruefen
+    if not pactl_available():
+        print(f"[GPIO] PulseAudio nicht erreichbar, ueberspringe", file=sys.stderr)
+        return
+    try:
+        subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'], timeout=2)
+    except Exception as e:
+        print(f"[GPIO] Mute failed: {e}", file=sys.stderr)
+    for i in range(repeat):
+        try:
+            r = subprocess.run(['mpg123', '-q', path], timeout=300)
+        except subprocess.TimeoutExpired:
+            print(f"[GPIO] Playback timeout", file=sys.stderr)
+        except Exception as e:
+            print(f"[GPIO] Playback error: {e}", file=sys.stderr)
+    try:
+        subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'], timeout=2)
+    except Exception as e:
+        print(f"[GPIO] Unmute failed: {e}", file=sys.stderr)
 
 _last = {{}}
 _lock = threading.Lock()
@@ -1360,58 +1408,78 @@ def api_backup_import():
         return jsonify({"ok": False, "msg": f"Import fehlgeschlagen: {e}"}), 400
 
 # ── API: Scheduled Triggers ─────────────────────────────────────────────────
+# Verwende APScheduler statt threading.Timer fuer robuste 24/7-Schedules
 _sched_lock = threading.Lock()
-_sched_timers = {}
+_sched_jobstore = {}  # {sched_id: next_run_time}
 
 def _load_schedules():
     return load_cfg().get("schedules", [])
 
 def _run_scheduled(sched_id):
-    """Fuehrt geplanten Trigger aus und plant den naechsten."""
+    """Fuehrt geplanten Trigger aus."""
     schedules = _load_schedules()
     for s in schedules:
         if s.get("id") == sched_id and s.get("enabled", True):
+            print(f"[SCHEDULE] Triggering: {s['sound']} (id={sched_id})", flush=True)
             trigger_play(s["sound"])
             break
-    _schedule_next(sched_id)
 
-def _schedule_next(sched_id):
-    """Plant den naechsten Lauf basierend auf der Konfiguration."""
-    import datetime
+def _schedule_all():
+    """Initialisiert alle Schedules beim Start."""
     schedules = _load_schedules()
-    sched = None
-    for s in schedules:
-        if s.get("id") == sched_id:
-            sched = s
-            break
-    if not sched or not sched.get("enabled", True):
-        return
-    try:
-        now = datetime.datetime.now()
-        h, m = map(int, sched["time"].split(":"))
-        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if target <= now:
-            target += datetime.timedelta(days=1)
-        # Wochentag-Filter (0=Mo, 6=So)
-        days = sched.get("days", [0,1,2,3,4,5,6])
-        while target.weekday() not in days:
-            target += datetime.timedelta(days=1)
-        delay = (target - now).total_seconds()
-        with _sched_lock:
-            old = _sched_timers.pop(sched_id, None)
-            if old:
-                old.cancel()
-            t = threading.Timer(delay, _run_scheduled, args=[sched_id])
-            t.daemon = True
-            t.start()
-            _sched_timers[sched_id] = t
-    except Exception:
-        pass
+    with _sched_lock:
+        _sched_jobstore.clear()
+        for s in schedules:
+            if s.get("enabled", True) and s.get("id"):
+                _sched_jobstore[s["id"]] = None
+    print(f"[SCHEDULE] Loaded {len(schedules)} schedules", flush=True)
 
-def _init_schedules():
-    for s in _load_schedules():
-        if s.get("enabled", True):
-            _schedule_next(s["id"])
+def _get_cron_delay(time_s, days):
+    """Berechnet Sekunden bis zum naechsten Termin."""
+    import datetime
+    now = datetime.datetime.now()
+    h, m = map(int, time_s.split(":"))
+    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    while target.weekday() not in (days or [0,1,2,3,4,5,6]):
+        target += datetime.timedelta(days=1)
+    return (target - now).total_seconds(), target
+
+# Hintergrund-Thread fuer Schedules (robuster als threading.Timer)
+def _schedule_runner():
+    """Laueft im Hintergrund und fuehrt Schedules aus."""
+    import datetime
+    last_check = None
+    while True:
+        time.sleep(30)  # Alle 30s pruefen
+        now = datetime.datetime.now()
+        if last_check and now - last_check < datetime.timedelta(seconds=25):
+            continue
+        last_check = now
+        schedules = _load_schedules()
+        for s in schedules:
+            if not s.get("enabled", True) or not s.get("id"):
+                continue
+            sched_id = s["id"]
+            time_s = s.get("time", "")
+            days = s.get("days", [0,1,2,3,4,5,6])
+            if not time_s:
+                continue
+            delay, target = _get_cron_delay(time_s, days)
+            # Wenn Zielzeit erreicht (Toleranz 60s)
+            if delay < 60:
+                # Check ob schon ausgefuehrt in dieser Minute
+                last_run = _sched_jobstore.get(sched_id)
+                if last_run and abs((target - last_run).total_seconds()) < 120:
+                    continue
+                print(f"[SCHEDULE] Running: {s['sound']} at {target}", flush=True)
+                _run_scheduled(sched_id)
+                _sched_jobstore[sched_id] = target
+
+# Schedule-Runner als Daemon-Thread starten
+_schedule_thread = threading.Thread(target=_schedule_runner, daemon=True)
+_schedule_thread.start()
 
 @app.route('/api/schedules', methods=['GET', 'POST'])
 def api_schedules():

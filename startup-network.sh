@@ -14,6 +14,50 @@ IFACE=$(ip -o link show 2>/dev/null | awk '{print $2}' | sed 's/://' | grep -E '
 [ -z "$IFACE" ] && IFACE=$(ip -o link show 2>/dev/null | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
+# Warten bis Interface bereit ist (max 30 Sekunden)
+for i in $(seq 1 30); do
+    if ip link show "$IFACE" &>/dev/null; then
+        log "Interface $IFACE ist bereit"
+        break
+    fi
+    log "Warte auf Interface $IFACE... ($i/30)"
+    sleep 1
+done
+
+# Statische IP setzen (falls konfiguriert)
+IP="192.168.1.120"
+GW="192.168.1.1"
+MASK="24"
+
+if [ -n "$IP" ]; then
+    # Prüfen ob IP schon gesetzt
+    if ! ip addr show "$IFACE" | grep -q "$IP"; then
+        ip addr add "${IP}/${MASK}" dev "$IFACE" 2>/dev/null && log "IP ${IP}/${MASK} gesetzt" || log "IP setzen fehlgeschlagen"
+    else
+        log "IP ${IP} bereits gesetzt"
+    fi
+fi
+
+# Service-IP setzen (falls noch nicht vorhanden)
+SERVICE_IP="10.0.0.10"
+if ! ip addr show "$IFACE" | grep -q "$SERVICE_IP"; then
+    ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" 2>/dev/null && log "Service-IP ${SERVICE_IP} gesetzt" || log "Service-IP setzen fehlgeschlagen"
+else
+    log "Service-IP bereits gesetzt"
+fi
+
+# Default-Gateway setzen
+if [ -n "$GW" ]; then
+    ip route del default 2>/dev/null || true
+    ip route add default via "$GW" dev "$IFACE" 2>/dev/null && log "Gateway $GW gesetzt" || log "Gateway setzen fehlgeschlagen"
+fi
+
+# DNS setzen
+DNS="8.8.8.8"
+if [ -n "$DNS" ] && ! grep -q "$DNS" /etc/resolv.conf 2>/dev/null; then
+    echo "nameserver ${DNS}" > /etc/resolv.conf && log "DNS auf $DNS gesetzt" || log "DNS setzen fehlgeschlagen"
+fi
+
 log "Interface: $IFACE"
 
 # Config lesen falls vorhanden
