@@ -606,54 +606,119 @@ def api_net_apply():
 
     errors = []
 
-    # ── interfaces.d Config aufbauen ──────────────────────────────────
-    try:
-        iface_dir = "/etc/network/interfaces.d"
+    # ── Prüfen ob NetworkManager läuft ───────────────────────────────
+    nm_active = run("systemctl is-active NetworkManager 2>/dev/null")["ok"]
 
-        # Alte Configs entfernen (clean slate)
-        for suffix in ("", "-static", "-service"):
-            old = os.path.join(iface_dir, f"{iface}{suffix}")
-            if os.path.exists(old):
-                os.remove(old)
+    if nm_active:
+        # NetworkManager Connection erstellen/aktualisieren
+        nm_dir = "/etc/NetworkManager/system-connections"
+        nm_file = os.path.join(nm_dir, f"{iface}.nmconnection")
 
-        # Statische IP (kein DHCP)
-        cfg_main = (
-            f"# Radxa Audio — statische IP\n"
-            f"auto {iface}\n"
-            f"iface {iface} inet static\n"
-            f"    address {ip}/{prefix}\n"
-            f"    gateway {gateway}\n"
-            f"    dns-nameservers {dns}\n"
-        )
-        with open(os.path.join(iface_dir, f"{iface}-static"), "w") as f:
-            f.write(cfg_main)
+        try:
+            os.makedirs(nm_dir, exist_ok=True)
+            # Alte unmanaged-Config entfernen falls vorhanden
+            unmanaged_conf = "/etc/NetworkManager/conf.d/99-radxa-unmanaged.conf"
+            if os.path.exists(unmanaged_conf):
+                os.remove(unmanaged_conf)
 
-        # Service-IP immer als Alias
-        cfg_service = (
-            f"# Service-IP Radxa Audio — NICHT ENTFERNEN\n"
-            f"auto {iface}:service\n"
-            f"iface {iface}:service inet static\n"
-            f"    address {SERVICE_IP}/{SERVICE_MASK}\n"
-        )
-        with open(os.path.join(iface_dir, f"{iface}-service"), "w") as f:
-            f.write(cfg_service)
+            # NM Connection mit statischer IP + Service-IP
+            nm_conn = f"""[connection]
+id={iface}
+type=ethernet
+interface-name={iface}
+autoconnect=true
 
-    except PermissionError:
-        errors.append("Root-Rechte fehlen für /etc/network")
+[ipv4]
+method=manual
+address1={ip}/{prefix},{gateway}
+address2={SERVICE_IP}/{SERVICE_MASK}
+dns={dns};
+ignore-auto-dns=true
 
-    # ── NetworkManager: Interface unmanaged setzen ─────────────────
-    nm_conf = "/etc/NetworkManager/conf.d/99-radxa-unmanaged.conf"
-    try:
-        os.makedirs(os.path.dirname(nm_conf), exist_ok=True)
-        with open(nm_conf, "w") as f:
-            f.write(f"[keyfile]\nunmanaged-devices=interface-name:{iface}\n")
-        run("systemctl reload NetworkManager 2>/dev/null")
-    except Exception:
-        pass
+[ipv6]
+method=ignore
+"""
+            with open(nm_file, "w") as f:
+                f.write(nm_conn)
+            os.chmod(nm_file, 0o600)
+
+            # Connection neu laden und aktivieren
+            run("nmcli connection reload 2>/dev/null")
+            run(f"nmcli connection up {iface} 2>/dev/null")
+        except Exception as e:
+            errors.append(f"NetworkManager Config fehlgeschlagen: {e}")
+    else:
+        # Kein NetworkManager – dhcpcd oder interfaces.d verwenden
+        if run("systemctl is-active dhcpcd 2>/dev/null")["ok"]:
+            # dhcpcd.conf aktualisieren
+            try:
+                dhcpcd_conf = "/etc/dhcpcd.conf"
+                backup = f"{dhcpcd_conf}.bak.{int(time.time())}"
+                if os.path.exists(dhcpcd_conf):
+                    run(f"cp {dhcpcd_conf} {backup}")
+
+                # Existierende eth0-Config entfernen
+                with open(dhcpcd_conf) as f:
+                    lines = f.readlines()
+                new_lines = []
+                skip = False
+                for line in lines:
+                    if line.strip().startswith("interface eth0"):
+                        skip = True
+                    elif skip and line.strip() and not line.strip().startswith("#"):
+                        if line.startswith(" ") or line.startswith("\t") or line.strip().startswith("static"):
+                            continue
+                        skip = False
+                    if not skip:
+                        new_lines.append(line)
+
+                with open(dhcpcd_conf, "w") as f:
+                    f.writelines(new_lines)
+                    f.write(f"\n# Radxa Audio — statische IP\n")
+                    f.write(f"interface {iface}\n")
+                    f.write(f"    static ip_address={ip}/{prefix}\n")
+                    f.write(f"    static routers={gateway}\n")
+                    f.write(f"    static domain_name_servers={dns}\n")
+                    f.write(f"\n# Fallback auf DHCP\n")
+                    f.write(f"fallback default\n")
+            except Exception as e:
+                errors.append(f"dhcpcd Config fehlgeschlagen: {e}")
+        else:
+            # Fallback: interfaces.d (klassisches ifupdown)
+            try:
+                iface_dir = "/etc/network/interfaces.d"
+                os.makedirs(iface_dir, exist_ok=True)
+
+                for suffix in ("", "-static", "-service"):
+                    old = os.path.join(iface_dir, f"{iface}{suffix}")
+                    if os.path.exists(old):
+                        os.remove(old)
+
+                cfg_main = (
+                    f"# Radxa Audio — statische IP\n"
+                    f"auto {iface}\n"
+                    f"iface {iface} inet static\n"
+                    f"    address {ip}/{prefix}\n"
+                    f"    gateway {gateway}\n"
+                    f"    dns-nameservers {dns}\n"
+                )
+                with open(os.path.join(iface_dir, f"{iface}-static"), "w") as f:
+                    f.write(cfg_main)
+
+                cfg_service = (
+                    f"# Service-IP Radxa Audio — NICHT ENTFERNEN\n"
+                    f"auto {iface}:service\n"
+                    f"iface {iface}:service inet static\n"
+                    f"    address {SERVICE_IP}/{SERVICE_MASK}\n"
+                )
+                with open(os.path.join(iface_dir, f"{iface}-service"), "w") as f:
+                    f.write(cfg_service)
+            except Exception as e:
+                errors.append(f"interfaces.d Config fehlgeschlagen: {e}")
 
     # ── Sofort anwenden ───────────────────────────────────────────────
     run(f"ip addr add {shlex.quote(ip)}/{prefix} dev {shlex.quote(iface)} 2>/dev/null")
-    # Alte Default-Route entfernen, dann neue setzen
+    run(f"ip addr add {SERVICE_IP}/{SERVICE_MASK} dev {shlex.quote(iface)} label {shlex.quote(iface)}:service 2>/dev/null")
     run("ip route del default 2>/dev/null")
     run(f"ip route add default via {shlex.quote(gateway)} dev {shlex.quote(iface)} 2>/dev/null")
     try:
@@ -661,8 +726,6 @@ def api_net_apply():
             f.write(f"nameserver {dns}\n")
     except Exception:
         errors.append("DNS konnte nicht gesetzt werden")
-
-    ensure_service_ip(iface)
 
     # ── Config speichern ──────────────────────────────────────────────
     cfg = load_cfg()

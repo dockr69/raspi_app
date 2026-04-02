@@ -206,83 +206,105 @@ EOF
 systemctl restart avahi-daemon >> "$LOG_FILE" 2>&1 || true
 ok "Hostname + mDNS: ${HOSTNAME_NEW}.local"
 
-# ── 5. Netzwerk: Statische IP + Service-IP (kein DHCP) ───────────
+# ── 5. Netzwerk: Statische IP + Service-IP (mit DHCP-Fallback) ───
 log "Konfiguriere Netzwerk: ${STATIC_IP} + Service-IP ${SERVICE_IP}..."
 
-# NetworkManager soll eth0 und DNS nicht anfassen (wir verwalten es selbst)
-if systemctl is-active NetworkManager &>/dev/null; then
-  mkdir -p /etc/NetworkManager/conf.d
-  cat > /etc/NetworkManager/conf.d/99-radxa-unmanaged.conf <<'NMEOF'
-[keyfile]
-unmanaged-devices=interface-name:eth0
-NMEOF
-  # NM darf /etc/resolv.conf nicht überschreiben
-  if ! grep -q "^dns=none" /etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
-    sed -i '/^\[main\]/a dns=none' /etc/NetworkManager/NetworkManager.conf
-  fi
-  systemctl restart NetworkManager >> "$LOG_FILE" 2>&1 || true
-  ok "NetworkManager: eth0 unmanaged + dns=none"
-fi
-
-# dhcpcd deaktivieren falls aktiv (kollidiert mit statischer Config)
-if systemctl is-active dhcpcd &>/dev/null; then
-  systemctl disable dhcpcd >> "$LOG_FILE" 2>&1 || true
-  systemctl stop dhcpcd >> "$LOG_FILE" 2>&1 || true
-  ok "dhcpcd deaktiviert"
-fi
-
+# Interface erkennen
 IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
-# Sofort setzen
+# NetworkManager: Connection für eth0 erstellen (funktioniert zuverlässig)
+if systemctl is-active NetworkManager &>/dev/null; then
+  log "NetworkManager erkannt – erstelle Connection..."
+  mkdir -p /etc/NetworkManager/system-connections
+
+  # Alte Connection entfernen falls vorhanden
+  rm -f "/etc/NetworkManager/system-connections/${IFACE}.nmconnection"
+
+  # Neue Connection mit statischer IP + Service-IP
+  cat > "/etc/NetworkManager/system-connections/${IFACE}.nmconnection" <<NMEOF
+[connection]
+id=${IFACE}
+type=ethernet
+interface-name=${IFACE}
+autoconnect=true
+
+[ipv4]
+method=manual
+address1=${STATIC_IP}/24,192.168.1.1
+address2=${SERVICE_IP}/24
+dns=8.8.8.8;
+ignore-auto-dns=true
+
+[ipv6]
+method=ignore
+NMEOF
+
+  chmod 600 "/etc/NetworkManager/system-connections/${IFACE}.nmconnection"
+  nmcli connection reload >> "$LOG_FILE" 2>&1 || true
+  nmcli connection up "${IFACE}" >> "$LOG_FILE" 2>&1 || true
+  ok "NetworkManager Connection erstellt: ${IFACE}"
+else
+  # Kein NetworkManager – verwende dhcpcd (Raspberry Pi Standard)
+  log "dhcpcd wird konfiguriert..."
+
+  # dhcpcd installieren falls nicht vorhanden
+  if ! command -v dhcpcd &>/dev/null; then
+    apt-get install -y dhcpcd >> "$LOG_FILE" 2>&1 || true
+  fi
+
+  # Backup der alten Config
+  [ -f /etc/dhcpcd.conf ] && cp /etc/dhcpcd.conf /etc/dhcpcd.conf.bak 2>/dev/null || true
+
+  # dhcpcd.conf mit statischer IP + Fallback
+  cat > /etc/dhcpcd.conf <<'DHCPCDEOF'
+# dhcpcd Konfiguration für Audio Konfigurator
+# Versucht erst statische IP, fällt zurück auf DHCP
+
+# Globale Defaults
+option routers
+option subnet_mask
+option domain_name_servers
+
+# eth0 mit statischer IP
+interface eth0
+    static ip_address=192.168.1.120/24
+    static routers=192.168.1.1
+    static domain_name_servers=8.8.8.8
+    # Fallback auf DHCP wenn statische IP nicht erreichbar
+    fallback default
+
+# Fallback Profil – DHCP
+fallback default
+    dhcp_timeout 10
+    ipv4ll
+DHCPCDEOF
+
+  # Service-IP als Alias über rc.local hinzufügen
+  cat > "/etc/rc.local" <<RCEOF
+#!/bin/bash
+# Service-IP als Alias hinzufügen
+SERVICE_IP="10.0.0.10"
+IFACE=\$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo | head -1)
+[ -z "\$IFACE" ] && IFACE=eth0
+ip addr add "\${SERVICE_IP}/24" dev "\$IFACE" label "\${IFACE}:service" 2>/dev/null || true
+exit 0
+RCEOF
+  chmod +x "/etc/rc.local"
+
+  systemctl enable dhcpcd >> "$LOG_FILE" 2>&1
+  systemctl start dhcpcd >> "$LOG_FILE" 2>&1 || true
+  ok "dhcpcd konfiguriert mit statischem IP + DHCP-Fallback"
+fi
+
+# Sofort IP setzen (für laufende Session)
 ip addr add "${STATIC_IP}/24" dev "$IFACE" >> "$LOG_FILE" 2>&1 || true
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
 ip route del default >> "$LOG_FILE" 2>&1 || true
 ip route add default via 192.168.1.1 dev "$IFACE" >> "$LOG_FILE" 2>&1 || true
-
-# Persistent
-mkdir -p /etc/network/interfaces.d
-rm -f "/etc/network/interfaces.d/${IFACE}" "/etc/network/interfaces.d/${IFACE}-static" "/etc/network/interfaces.d/${IFACE}-service"
-
-# Statische IP (Internetzugang)
-cat > "/etc/network/interfaces.d/${IFACE}-static" <<EOF
-# Audio Konfigurator — statische IP
-auto ${IFACE}
-iface ${IFACE} inet static
-    address ${STATIC_IP}/24
-    gateway 192.168.1.1
-    dns-nameservers 8.8.8.8
-EOF
-
-# Service-IP (direkter Laptop-Zugriff)
-cat > "/etc/network/interfaces.d/${IFACE}-service" <<EOF
-# Service-IP Audio Konfigurator — NICHT ENTFERNEN
-auto ${IFACE}:service
-iface ${IFACE}:service inet static
-    address ${SERVICE_IP}/24
-EOF
-
-# rc.local – ruft startup-network.sh auf, Fallback bei fehlendem Config
-cat > "/etc/rc.local" <<RCEOF
-#!/bin/bash
-CFG="/etc/radxa_audio/config.json"
-if [ -f "\$CFG" ] && command -v python3 &>/dev/null; then
-    /opt/radxa_audio/startup-network.sh 2>/dev/null || true
-else
-    # Hardcoded Fallback nur wenn Config/Python nicht verfügbar
-    IFACE=\$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo | head -1)
-    [ -z "\$IFACE" ] && IFACE=eth0
-    ip addr add ${STATIC_IP}/24 dev "\$IFACE" 2>/dev/null || true
-    ip addr add ${SERVICE_IP}/24 dev "\$IFACE" label "\${IFACE}:service" 2>/dev/null || true
-    ip route del default 2>/dev/null
-    ip route add default via 192.168.1.1 dev "\$IFACE" 2>/dev/null || true
-    echo "nameserver 8.8.8.8" > /etc/resolv.conf
-fi
-exit 0
-RCEOF
-chmod +x "/etc/rc.local"
-ok "Statische IP: ${STATIC_IP}, Service-IP: ${SERVICE_IP} auf ${IFACE}"
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+ok "Netzwerk gesetzt: ${STATIC_IP} + ${SERVICE_IP} auf ${IFACE}"
 
 # ── 6. PulseAudio System-Modus (damit root Soundkarten sieht) ────
 log "Konfiguriere PulseAudio im System-Modus..."
