@@ -120,7 +120,20 @@ def ensure_loopback():
         return
     cfg = load_cfg()
     source = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
-    sink = cfg.get("audio", {}).get("sink", "@DEFAULT_SINK@")
+    sink   = cfg.get("audio", {}).get("sink",   "@DEFAULT_SINK@")
+    # Fallback auf auto-erkannte USB-Geräte wenn Config-Gerät nicht mehr existiert
+    live_sources = detect_sources()
+    live_sinks   = _detect_sinks()
+    if source not in live_sources and live_sources and live_sources[0] != "@DEFAULT_SOURCE@":
+        source = live_sources[0]
+        cfg.setdefault("audio", {})["source"] = source
+        save_cfg(cfg)
+        print(f"[AUDIO] Source auto-updated: {source}", flush=True)
+    if sink not in live_sinks and live_sinks and live_sinks[0] != "@DEFAULT_SINK@":
+        sink = live_sinks[0]
+        cfg.setdefault("audio", {})["sink"] = sink
+        save_cfg(cfg)
+        print(f"[AUDIO] Sink auto-updated: {sink}", flush=True)
     r = run(f"pactl load-module module-loopback "
             f"source={shlex.quote(source)} "
             f"sink={shlex.quote(sink)} "
@@ -385,7 +398,7 @@ def ensure_service_ip(iface=None):
         run(f"ip addr add {SERVICE_IP}/{SERVICE_MASK} dev {iface} "
             f"label {iface}:service 2>/dev/null")
 
-_EXCLUDE_CARDS = ("alsa_output.0.", "alsa_input.0.", "alsa_output.platform-", "alsa_input.platform-")
+_EXCLUDE_CARDS = ("alsa_output.platform-", "alsa_input.platform-", "alsa_output.bcm", "alsa_input.bcm")
 
 def detect_sources():
     out = run("pactl list sources short 2>/dev/null")["out"]
