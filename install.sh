@@ -209,15 +209,19 @@ ok "Hostname + mDNS: ${HOSTNAME_NEW}.local"
 # ── 5. Netzwerk: Statische IP + Service-IP (kein DHCP) ───────────
 log "Konfiguriere Netzwerk: ${STATIC_IP} + Service-IP ${SERVICE_IP}..."
 
-# NetworkManager soll eth0 nicht anfassen (wir verwalten es selbst)
+# NetworkManager soll eth0 und DNS nicht anfassen (wir verwalten es selbst)
 if systemctl is-active NetworkManager &>/dev/null; then
   mkdir -p /etc/NetworkManager/conf.d
   cat > /etc/NetworkManager/conf.d/99-radxa-unmanaged.conf <<'NMEOF'
 [keyfile]
 unmanaged-devices=interface-name:eth0
 NMEOF
-  systemctl reload NetworkManager >> "$LOG_FILE" 2>&1 || true
-  ok "NetworkManager: eth0 auf unmanaged gesetzt"
+  # NM darf /etc/resolv.conf nicht überschreiben
+  if ! grep -q "^dns=none" /etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
+    sed -i '/^\[main\]/a dns=none' /etc/NetworkManager/NetworkManager.conf
+  fi
+  systemctl restart NetworkManager >> "$LOG_FILE" 2>&1 || true
+  ok "NetworkManager: eth0 unmanaged + dns=none"
 fi
 
 # dhcpcd deaktivieren falls aktiv (kollidiert mit statischer Config)
