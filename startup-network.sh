@@ -6,6 +6,7 @@ SERVICE_IP="10.0.0.10"
 IFACE=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('interface','eth0'))" 2>/dev/null || echo eth0)
 IP=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('ip',''))" 2>/dev/null || true)
 GW=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('gateway',''))" 2>/dev/null || true)
+DNS=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('dns','8.8.8.8'))" 2>/dev/null || echo 8.8.8.8)
 MASK=$(python3 -c "import json; m=json.load(open('$CFG')).get('network',{}).get('mask','255.255.255.0'); print(sum(bin(int(x)).count('1') for x in m.split('.')))" 2>/dev/null || echo 24)
 
 # Statische IP setzen (falls konfiguriert)
@@ -19,3 +20,6 @@ if [ -n "$GW" ]; then
     ip route del default 2>/dev/null
     ip route add default via "$GW" dev "$IFACE" 2>/dev/null || true
 fi
+
+# DNS aus Config setzen
+echo "nameserver ${DNS}" > /etc/resolv.conf
