@@ -347,7 +347,7 @@ load-module module-alsa-card device_id=2 tsched=no
 load-module module-alsa-card device_id=3 tsched=no
 .fail
 
-load-module module-native-protocol-unix
+load-module module-native-protocol-unix socket=/run/pulse/native auth-anonymous=1
 load-module module-default-device-restore
 load-module module-always-sink
 load-module module-suspend-on-idle
@@ -369,7 +369,9 @@ Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=/usr/bin/pulseaudio --daemonize=no --log-target=journal --no-cpu-limit
+ExecStartPre=/bin/mkdir -p /run/pulse
+ExecStartPre=/bin/chmod 755 /run/pulse
+ExecStart=/usr/bin/pulseaudio --system --daemonize=no --log-target=journal --no-cpu-limit
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
@@ -436,7 +438,7 @@ Restart=always
 RestartSec=5
 User=root
 Environment=PYTHONUNBUFFERED=1
-Environment=PULSE_SERVER=unix:/var/run/pulse/native
+Environment=PULSE_SERVER=unix:/run/pulse/native
 # Watchdog fuer 24/7-Stabilitaet
 WatchdogSec=60s
 
@@ -461,7 +463,7 @@ ExecStart=/usr/bin/python3 /usr/local/bin/radxa_gpio.py
 Restart=always
 RestartSec=5
 User=root
-Environment=PULSE_SERVER=unix:/var/run/pulse/native
+Environment=PULSE_SERVER=unix:/run/pulse/native
 
 [Install]
 WantedBy=multi-user.target
