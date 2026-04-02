@@ -193,6 +193,9 @@ def _ensure_default_config():
         save_cfg(cfg)
     return cfg
 
+_cfg_lock = threading.Lock()
+_secret_lock = threading.Lock()
+
 # ── Secret Key (persistent, damit Sessions nach Neustart gültig bleiben) ──────
 def _load_secret_key():
     """Liest oder erstellt Secret Key mit Lock fuer Thread-Safety."""
@@ -228,9 +231,6 @@ def run(cmd, timeout=20):
         return {"out": "", "err": "timeout", "ok": False}
     except Exception as e:
         return {"out": "", "err": str(e), "ok": False}
-
-_cfg_lock = threading.Lock()
-_secret_lock = threading.Lock()
 
 def load_cfg():
     """Liest Config mit Lock fuer Thread-Safety."""
@@ -408,17 +408,21 @@ def ensure_service_ip(iface=None):
         run(f"ip addr add {SERVICE_IP}/{SERVICE_MASK} dev {iface} "
             f"label {iface}:service 2>/dev/null")
 
+_EXCLUDE_CARDS = ("alsa_output.0.", "alsa_input.0.", "alsa_output.platform-", "alsa_input.platform-")
+
 def detect_sources():
     out = run("pactl list sources short 2>/dev/null")["out"]
     sources = [l.split()[1] for l in out.splitlines()
-               if len(l.split()) >= 2 and "monitor" not in l.split()[1].lower()]
+               if len(l.split()) >= 2
+               and "monitor" not in l.split()[1].lower()
+               and not l.split()[1].startswith(_EXCLUDE_CARDS)]
     return sources or ["@DEFAULT_SOURCE@"]
 
 def _detect_sinks():
-    """Erkennt alle PulseAudio-Ausgänge (Sinks)."""
     out = run("pactl list sinks short 2>/dev/null")["out"]
     sinks = [l.split()[1] for l in out.splitlines()
-             if len(l.split()) >= 2]
+             if len(l.split()) >= 2
+             and not l.split()[1].startswith(_EXCLUDE_CARDS)]
     return sinks or ["@DEFAULT_SINK@"]
 
 def list_mp3s():
@@ -762,55 +766,6 @@ def api_ping():
     return jsonify({"ok": r["ok"], "msg": r["out"] or r["err"]})
 
 # ── API: Audio ────────────────────────────────────────────────────────────────
-def detect_cards():
-    """Returns list of {name, profiles, active_profile} for all PulseAudio cards."""
-    out = run("pactl list cards 2>/dev/null")["out"]
-    cards = []
-    cur = None
-    in_profiles = False
-    for line in out.splitlines():
-        if line.startswith("Card #"):
-            if cur and cur["name"]:
-                cards.append(cur)
-            cur = {"name": "", "profiles": [], "active_profile": ""}
-            in_profiles = False
-        elif cur is not None:
-            s = line.strip()
-            if s.startswith("Name:"):
-                cur["name"] = s[5:].strip()
-            elif s == "Profiles:":
-                in_profiles = True
-            elif s.startswith("Active Profile:"):
-                cur["active_profile"] = s[15:].strip()
-                in_profiles = False
-            elif s.startswith(("Ports:", "Properties:", "Formats:")):
-                in_profiles = False
-            elif in_profiles and ": " in s:
-                # Profile format: "output:analog-stereo: Description (sinks: ...)"
-                # Split on ": " to get full profile name before description
-                parts = s.split(": ", 1)
-                pname = parts[0].strip()
-                if pname:
-                    cur["profiles"].append(pname)
-    if cur and cur["name"]:
-        cards.append(cur)
-    return cards
-
-@app.route('/api/audio/cards')
-def api_cards():
-    return jsonify(detect_cards())
-
-@app.route('/api/audio/card-profile', methods=['POST'])
-def api_card_profile():
-    d = request.json
-    card = d.get("card", "")
-    profile = d.get("profile", "")
-    # Validate: no shell special chars
-    if not re.match(r'^[\w@.:+-]+$', card) or not re.match(r'^[\w@.:+/-]+$', profile):
-        return jsonify({"ok": False, "msg": "Ungültiger Wert"}), 400
-    r = run(f"pactl set-card-profile {shlex.quote(card)} {shlex.quote(profile)}")
-    return jsonify({"ok": r["ok"], "msg": r["err"] if not r["ok"] else "Profil gesetzt"})
-
 @app.route('/api/audio/sources')
 def api_sources():
     sources = detect_sources()
@@ -1129,7 +1084,7 @@ CHIP        = {repr(GPIOCHIP)}
 DEBOUNCE    = 0.2
 
 def pactl_available():
-    """Prueft ob PulseAudio erreichbar ist."""
+    '''Prueft ob PulseAudio erreichbar ist.'''
     try:
         r = subprocess.run(['pactl', 'info'], capture_output=True, timeout=2)
         return r.returncode == 0
@@ -1522,7 +1477,7 @@ def api_schedules_delete():
     return jsonify({"ok": True})
 
 # Schedules beim Start laden
-_init_schedules()
+_schedule_all()
 
 # ── Tmp-Cleanup beim Start ──────────────────────────────────────────────────
 for _tmp in globmod.glob("/tmp/_radxa_*"):

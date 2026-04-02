@@ -618,33 +618,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         </div>
         <div class="spill" id="s-audio-status"></div>
       </div>
-      <div class="card">
-        <div class="card-title">🎧 Combo Jack / Headset (3,5 mm TRRS)</div>
-        <div style="font-size:12px;color:var(--t2);margin-bottom:14px">
-          Boards mit kombiniertem Headset-Anschluss (3A, 4C+, …) benötigen
-          das <b style="color:var(--text)">Headset-Profil</b>, damit der Eingang (Mikrofon/Line-In)
-          am 3,5-mm-Anschluss aktiv ist.
-        </div>
-        <div class="frow">
-          <div class="flabel">Soundkarte</div>
-          <div class="fwrap">
-            <div style="display:flex;gap:7px">
-              <select id="s-card-select" style="flex:1"></select>
-              <button class="btn btn-ghost btn-sm" onclick="sLoadCards()">↺</button>
-            </div>
-          </div>
-        </div>
-        <div class="frow">
-          <div class="flabel">Profil</div>
-          <div class="fwrap">
-            <select id="s-profile-select" style="width:100%"></select>
-          </div>
-        </div>
-        <div class="brow">
-          <button class="btn btn-green btn-sm" onclick="sApplyCardProfile()">✓ Profil setzen</button>
-        </div>
-        <div class="spill" id="s-card-status"></div>
-      </div>
       <div class="card" style="padding:14px 18px;font-size:13px;color:var(--t2)">
         Line-In → Line-Out läuft <b style="color:var(--text)">permanent</b>.
         Beim Trigger: Line-In kurz stumm → Ton → Line-In wieder aktiv.
@@ -1153,7 +1126,6 @@ async function loadSettingsData() {
   if(a.source) document.getElementById('s-audio-src').value = a.source;
   await sDetectSinks();
   if(a.sink) document.getElementById('s-audio-sink').value = a.sink;
-  await sLoadCards();
   sNetInput();
 }
 
@@ -1233,41 +1205,6 @@ async function sDoMute(m) {
 async function sTestAudio() {
   const r = await api('POST','/api/audio/test');
   pill('s-audio-status',r.ok?`▶ ${r.playing}`:r.msg||'Fehler',r.ok?'info':'warn');
-}
-async function sLoadCards() {
-  const list = await api('GET', '/api/audio/cards');
-  const cSel = document.getElementById('s-card-select');
-  const pSel = document.getElementById('s-profile-select');
-  if (!list || !list.length) {
-    cSel.innerHTML = '<option value="">– keine Karten gefunden –</option>';
-    pSel.innerHTML = '';
-    return;
-  }
-  cSel.innerHTML = list.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-  sPopulateProfiles(list, list[0]);
-  cSel.onchange = () => {
-    const card = list.find(c => c.name === cSel.value);
-    if (card) sPopulateProfiles(list, card);
-  };
-}
-function sPopulateProfiles(list, card) {
-  const pSel = document.getElementById('s-profile-select');
-  pSel.innerHTML = card.profiles.map(p => {
-    const isHeadset = p.includes('headset');
-    return `<option value="${p}" ${isHeadset ? 'style="font-weight:700;color:var(--acc)"' : ''}>${p}${isHeadset ? ' ★' : ''}</option>`;
-  }).join('');
-  const headset = card.profiles.find(p => p.includes('headset'));
-  const active  = card.active_profile;
-  if (active && card.profiles.includes(active)) pSel.value = active;
-  else if (headset) pSel.value = headset;
-}
-async function sApplyCardProfile() {
-  const card    = document.getElementById('s-card-select').value;
-  const profile = document.getElementById('s-profile-select').value;
-  if (!card || !profile) { pill('s-card-status','Karte/Profil wählen','warn'); return; }
-  pill('s-card-status','…Setze Profil','info');
-  const r = await api('POST', '/api/audio/card-profile', { card, profile });
-  pill('s-card-status', r.ok ? `✓ ${profile}` : '✗ ' + (r.msg || 'Fehler'), r.ok ? 'ok' : 'err');
 }
 
 // Settings: GPIO
