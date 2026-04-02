@@ -173,6 +173,16 @@ def _ensure_default_config():
         sinks = _detect_sinks()
         cfg["audio"]["sink"] = sinks[0] if sinks else "@DEFAULT_SINK@"
         changed = True
+      # Ensure USB audio is preferred when config exists but device is invalid
+    elif cfg.get("audio", {}).get("source") == "@DEFAULT_SOURCE@" or cfg.get("audio", {}).get("sink") == "@DEFAULT_SINK@":
+        sources = detect_sources()
+        sinks = _detect_sinks()
+        if sources and sources[0] != "@DEFAULT_SOURCE@":
+            cfg["audio"]["source"] = sources[0]
+            changed = True
+        if sinks and sinks[0] != "@DEFAULT_SINK@":
+            cfg["audio"]["sink"] = sinks[0]
+            changed = True
     if "network" not in cfg:
         cfg["network"] = {
             "interface": "eth0",
@@ -419,6 +429,10 @@ def detect_sources():
                and not l.split()[1].startswith(_EXCLUDE_CARDS)]
     # Filter out HDMI/invalid sources
     sources = [s for s in sources if "hdmi" not in s.lower() and "vc4" not in s.lower()]
+     # Prefer USB audio (card 1) over internal (card 0)
+    usb_sources = [s for s in sources if ".1." in s or "usb" in s.lower()]
+    if usb_sources:
+        return usb_sources + [s for s in sources if s not in usb_sources]
     return sources or ["@DEFAULT_SOURCE@"]
 
 def _detect_sinks():
@@ -429,6 +443,10 @@ def _detect_sinks():
              and not l.split()[1].startswith(_EXCLUDE_CARDS)]
     # Filter out HDMI/invalid sinks
     sinks = [s for s in sinks if "hdmi" not in s.lower() and "vc4" not in s.lower()]
+    # Prefer USB audio (card 1) over internal (card 0)
+    usb_sinks = [s for s in sinks if ".1." in s or "usb" in s.lower()]
+    if usb_sinks:
+        return usb_sinks + [s for s in sinks if s not in usb_sinks]
     return sinks or ["@DEFAULT_SINK@"]
 
 def list_mp3s():
@@ -1038,10 +1056,12 @@ def api_mp3_trigger():
         repeat = max(1, min(10, int(d.get("repeat", 1))))
     except (TypeError, ValueError):
         repeat = 1
+        print(f"[GPIO] Invalid repeat value for {stem}: {d.get('repeat')}, using default 1", file=sys.stderr)
     try:
         timeout = max(0, min(300, int(d.get("timeout", 0))))
     except (TypeError, ValueError):
         timeout = 0
+        print(f"[GPIO] Invalid timeout value for {stem}: {d.get('timeout')}, using default 0", file=sys.stderr)
     cfg["sounds"][stem] = {
         "trigger_type": ttype,
         "gpio_pin":     pin if ttype == "gpio" else None,
@@ -1110,6 +1130,7 @@ def api_upload():
                         _add_job(entry_base, entry_tmp)
             except Exception as e:
                 jobs.append({"orig": orig, "error": f"ZIP-Fehler: {e}"})
+                print(f"[ZIP] Extraction failed for {orig}: {e}", file=sys.stderr)
             finally:
                 try: os.remove(tmp)
                 except Exception: pass
@@ -1134,6 +1155,7 @@ def api_upload():
         else:
             try: os.remove(job["out_path"])
             except Exception: pass
+            print(f"[FFMPEG] Conversion failed for {job['orig']}: {(r['out'] or r['err'])[:300]}", file=sys.stderr)
             return {"ok": False, "original": job["orig"],
                     "error": (r["out"] or r["err"])[:300]}
 
