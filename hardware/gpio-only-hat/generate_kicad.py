@@ -3,7 +3,7 @@
 GPIO-Only HAT – KiCad Schematic & PCB Generator
 ================================================
 Simples HAT: 8x Schraubklemmen mit RC-Entprellung, kein Audio-Codec.
-Audio läuft über den 3.5mm-Klinke des Pi/Radxa direkt.
+Audio läuft über den 3.5mm-Klinke des Raspberry Pi direkt.
 
 Run: python3 generate_kicad.py
 """
@@ -261,7 +261,7 @@ def generate_schematic():
     text("── Hinweise ──", 120, 220)
     texts.append(f'  (text "RC-Entprellung: 10k + 100nF → τ ≈ 1ms" (at 120 230 0) (effects (font (size 1.5 1.5))))')
     texts.append(f'  (text "Software-Debounce (200ms) kommt zusätzlich im GPIO-Daemon" (at 120 236 0) (effects (font (size 1.5 1.5))))')
-    texts.append(f'  (text "Audio über 3.5mm Klinke des Pi/Radxa direkt" (at 120 242 0) (effects (font (size 1.5 1.5))))')
+    texts.append(f'  (text "Audio über 3.5mm Klinke des Raspberry Pi direkt" (at 120 242 0) (effects (font (size 1.5 1.5))))')
     texts.append(f'  (text "GPIO-Pins: 4, 17, 18, 22, 23, 24, 25, 27 (identisch mit app.py)" (at 120 248 0) (effects (font (size 1.5 1.5))))')
 
     # ── Assemble ──

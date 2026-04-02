@@ -18,9 +18,9 @@ app = Flask(__name__)
 SERVICE_IP      = "10.0.0.10"
 SERVICE_MASK    = "24"
 DEFAULT_HOSTNAME = "textspeicher"
-CONFIG_FILE     = "/etc/radxa_audio/config.json"
-MP3_FOLDER      = "/etc/radxa_audio/sounds"
-BOARD_FILE      = "/etc/radxa_audio/board.json"
+CONFIG_FILE     = "/etc/raspi_audio/config.json"
+MP3_FOLDER      = "/etc/raspi_audio/sounds"
+BOARD_FILE      = "/etc/raspi_audio/board.json"
 
 # ── Board-Erkennung (Raspberry Pi 3B/4) ─────────────────────────────────────
 def _load_board_info():
@@ -64,7 +64,7 @@ GPIO_PINS  = BOARD_INFO["gpio_pins"]
 GPIOCHIP   = BOARD_INFO["gpiochip"]
 print(f"[BOARD] {BOARD_INFO['board_name']} | GPIO: {GPIOCHIP} | Pins: {GPIO_PINS}", flush=True)
 
-SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
+SECRET_KEY_FILE  = "/etc/raspi_audio/.secret_key"
 DEFAULT_USER = BOARD_INFO.get("default_user", "pi")
 
 os.makedirs(MP3_FOLDER, exist_ok=True)
@@ -633,7 +633,7 @@ def api_net_apply():
         try:
             os.makedirs(nm_dir, exist_ok=True)
             # Alte unmanaged-Config entfernen falls vorhanden
-            unmanaged_conf = "/etc/NetworkManager/conf.d/99-radxa-unmanaged.conf"
+            unmanaged_conf = "/etc/NetworkManager/conf.d/99-raspi-unmanaged.conf"
             if os.path.exists(unmanaged_conf):
                 os.remove(unmanaged_conf)
 
@@ -690,7 +690,7 @@ method=ignore
 
                 with open(dhcpcd_conf, "w") as f:
                     f.writelines(new_lines)
-                    f.write(f"\n# Radxa Audio — statische IP\n")
+                    f.write(f"\n# Raspberry Pi Audio — statische IP\n")
                     f.write(f"interface {iface}\n")
                     f.write(f"    static ip_address={ip}/{prefix}\n")
                     f.write(f"    static routers={gateway}\n")
@@ -711,7 +711,7 @@ method=ignore
                         os.remove(old)
 
                 cfg_main = (
-                    f"# Radxa Audio — statische IP\n"
+                    f"# Raspberry Pi Audio — statische IP\n"
                     f"auto {iface}\n"
                     f"iface {iface} inet static\n"
                     f"    address {ip}/{prefix}\n"
@@ -722,7 +722,7 @@ method=ignore
                     f.write(cfg_main)
 
                 cfg_service = (
-                    f"# Service-IP Radxa Audio — NICHT ENTFERNEN\n"
+                    f"# Service-IP Raspberry Pi Audio — NICHT ENTFERNEN\n"
                     f"auto {iface}:service\n"
                     f"iface {iface}:service inet static\n"
                     f"    address {SERVICE_IP}/{SERVICE_MASK}\n"
@@ -1023,7 +1023,7 @@ def api_upload():
             continue
         stem = sanitize(os.path.splitext(orig)[0]) or "audio"
         ext  = re.sub(r'[^a-zA-Z0-9.]', '', os.path.splitext(orig)[1].lower())
-        tmp  = f"/tmp/_radxa_{stem}_{os.getpid()}_{len(jobs)}{ext}"
+        tmp  = f"/tmp/_raspi_{stem}_{os.getpid()}_{len(jobs)}{ext}"
         f.save(tmp)
         # Ausgabe-Namen unter Lock reservieren → kein Namenskonflikt zwischen Threads
         with _name_lock:
@@ -1114,14 +1114,14 @@ def _write_gpio_script(cfg):
                 "repeat": max(1, min(10, int(sc.get("repeat", 1)))),
             }
     if not gpio_map:
-        run("systemctl stop radxa-audio-gpio 2>/dev/null")
+        run("systemctl stop raspi-audio-gpio 2>/dev/null")
         return
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
-    # Uses python3-gpiod (works on Radxa ROCK 3A, 4C+ and all libgpiod boards)
+    # Uses python3-gpiod (works on Raspberry Pi and all libgpiod boards)
     # Supports gpiod 2.x API (Debian Bookworm+) with automatic fallback to gpiod 1.x
     script = f"""#!/usr/bin/env python3
-# GPIO-Daemon – auto-generiert von Radxa Audio Konfigurator
-# Kompatibel mit Radxa ROCK 3A, 4C+ und anderen Boards (gpiod 1.x + 2.x)
+# GPIO-Daemon – auto-generiert von Raspberry Pi Audio Konfigurator
+# Kompatibel mit Raspberry Pi 3B/4 (gpiod 1.x + 2.x)
 import subprocess, time, os, sys, threading
 
 MP3_FOLDER  = {repr(str(MP3_FOLDER))}
@@ -1188,7 +1188,7 @@ if hasattr(gpiod, 'request_lines'):
     from datetime import timedelta
     with gpiod.request_lines(
         CHIP,
-        consumer='radxa-audio',
+        consumer='raspi-audio',
         config={{
             tuple(GPIO_MAP.keys()): gpiod.LineSettings(
                 direction=Direction.INPUT,
@@ -1209,7 +1209,7 @@ else:
     chip  = gpiod.Chip(CHIP)
     lines = chip.get_lines(list(GPIO_MAP.keys()))
     lines.request(
-        consumer='radxa-audio',
+        consumer='raspi-audio',
         type=gpiod.LINE_REQ_EV_FALLING_EDGE,
         flags=gpiod.LINE_REQ_FLAG_BIAS_PULL_UP,
     )
@@ -1227,10 +1227,10 @@ else:
     finally:
         lines.release()
 """
-    with open("/usr/local/bin/radxa_gpio.py", "w") as f:
+    with open("/usr/local/bin/raspi_gpio.py", "w") as f:
         f.write(script)
-    os.chmod("/usr/local/bin/radxa_gpio.py", 0o755)
-    run("systemctl restart radxa-audio-gpio 2>/dev/null")
+    os.chmod("/usr/local/bin/raspi_gpio.py", 0o755)
+    run("systemctl restart raspi-audio-gpio 2>/dev/null")
 
 # ── API: Hostname ────────────────────────────────────────────────────────────
 @app.route('/api/hostname', methods=['GET', 'POST'])
@@ -1312,8 +1312,8 @@ def api_health():
     # Uptime
     uptime = run("uptime -p 2>/dev/null || uptime")["out"]
     # Services
-    web_ok  = "active" in run("systemctl is-active radxa-audio-web 2>/dev/null")["out"]
-    gpio_ok = "active" in run("systemctl is-active radxa-audio-gpio 2>/dev/null")["out"]
+    web_ok  = "active" in run("systemctl is-active raspi-audio-web 2>/dev/null")["out"]
+    gpio_ok = "active" in run("systemctl is-active raspi-audio-gpio 2>/dev/null")["out"]
     return jsonify({
         "cpu_temp":   temp,
         "ram_total":  ram_total,
@@ -1340,7 +1340,7 @@ def api_audio_preview():
     """Nimmt 5 Sekunden vom Line-In auf und gibt WAV zurueck."""
     cfg = load_cfg()
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
-    tmp = f"/tmp/_radxa_preview_{os.getpid()}.wav"
+    tmp = f"/tmp/_raspi_preview_{os.getpid()}.wav"
     r = run(f"parecord --channels=1 --rate=22050 --format=s16le "
             f"-d {shlex.quote(src)} --file-format=wav {shlex.quote(tmp)} &"
             f" RPID=$!; sleep 5; kill $RPID 2>/dev/null; wait $RPID 2>/dev/null",
@@ -1355,7 +1355,7 @@ def api_audio_preview():
 # ── API: Reboot / Restart ───────────────────────────────────────────────────
 @app.route('/api/system/restart-service', methods=['POST'])
 def api_restart_service():
-    run("systemctl restart radxa-audio-web 2>/dev/null")
+    run("systemctl restart raspi-audio-web 2>/dev/null")
     return jsonify({"ok": True, "msg": "Service wird neu gestartet..."})
 
 @app.route('/api/system/reboot', methods=['POST'])
@@ -1380,7 +1380,7 @@ def api_backup_export():
                 zf.write(fp, f"sounds/{f}")
     buf.seek(0)
     return send_file(buf, mimetype='application/zip',
-                     as_attachment=True, download_name='radxa_backup.zip')
+                     as_attachment=True, download_name='raspi_backup.zip')
 
 @app.route('/api/backup/import', methods=['POST'])
 def api_backup_import():
@@ -1524,7 +1524,7 @@ def api_schedules_delete():
 _schedule_all()
 
 # ── Tmp-Cleanup beim Start ──────────────────────────────────────────────────
-for _tmp in globmod.glob("/tmp/_radxa_*"):
+for _tmp in globmod.glob("/tmp/_raspi_*"):
     try:
         os.remove(_tmp)
     except Exception:

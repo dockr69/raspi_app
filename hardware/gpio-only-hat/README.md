@@ -1,6 +1,6 @@
 # GPIO-Only HAT – Raspberry Pi 3/4
 
-Minimales HAT: Nur 8 Schraubklemmen für Taster mit RC-Entprellung. Kein Audio-Codec — Audio läuft über den 3,5mm-Klinke des Pi/Radxa direkt.
+Minimales HAT: Nur 8 Schraubklemmen für Taster mit RC-Entprellung. Kein Audio-Codec — Audio läuft über den 3,5mm-Klinke des Raspberry Pi direkt.
 
 ---
 
