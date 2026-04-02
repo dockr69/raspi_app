@@ -103,7 +103,15 @@ def _audio_alias(pa_name):
 # ── Hostname aus Config ──────────────────────────────────────────────────────
 def get_hostname():
     cfg = load_cfg()
-    return cfg.get("hostname", DEFAULT_HOSTNAME)
+    # Config hat Vorrang; Fallback: echter System-Hostname
+    h = cfg.get("hostname", "")
+    if not h:
+        try:
+            import socket
+            h = socket.gethostname().split('.')[0]
+        except Exception:
+            h = DEFAULT_HOSTNAME
+    return h
 
 # ── Loopback-Management ─────────────────────────────────────────────────────
 _loopback_module_id = None

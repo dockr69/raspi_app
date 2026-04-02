@@ -676,8 +676,8 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="frow">
           <div class="flabel">Hostname</div>
           <div class="fwrap">
-            <input type="text" id="s-hostname" placeholder="textspeicher" autocomplete="off">
-            <div class="fhint">Erreichbar als <b id="s-hostname-mdns">textspeicher.local</b></div>
+            <input type="text" id="s-hostname" placeholder="hostname" autocomplete="off">
+            <div class="fhint">Erreichbar als <b id="s-hostname-mdns">–</b></div>
           </div>
         </div>
         <div class="brow">
@@ -1353,12 +1353,12 @@ async function sSaveGpio() {
 // Settings: Hostname
 async function sLoadHostname() {
   const r = await api('GET','/api/hostname');
-  document.getElementById('s-hostname').value = r.hostname || 'textspeicher';
-  document.getElementById('s-hostname-mdns').textContent = (r.hostname || 'textspeicher') + '.local';
+  document.getElementById('s-hostname').value = r.hostname || '';
+  document.getElementById('s-hostname-mdns').textContent = r.hostname ? r.hostname + '.local' : '–';
 }
 document.getElementById('s-hostname')?.addEventListener('input', function() {
   const v = this.value.replace(/[^a-zA-Z0-9\-]/g, '').toLowerCase();
-  document.getElementById('s-hostname-mdns').textContent = (v || 'textspeicher') + '.local';
+  document.getElementById('s-hostname-mdns').textContent = v ? v + '.local' : '–';
 });
 async function sSaveHostname() {
   const hostname = document.getElementById('s-hostname').value.trim();
