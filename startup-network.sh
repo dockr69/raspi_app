@@ -1,7 +1,7 @@
 #!/bin/bash
 # Startup-Netzwerk-Skript für Audio Konfigurator
 # Wird vom Web-Service (ExecStartPre) aufgerufen
-CFG="/etc/radxa_audio/config.json"
+CFG="/etc/raspi_audio/config.json"
 SERVICE_IP="10.0.0.10"
 LOG="/var/log/radxa-network.log"
 

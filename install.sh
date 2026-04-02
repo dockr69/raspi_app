@@ -13,16 +13,16 @@
 set -e
 cd "$(dirname "$0")"
 
-LOG_FILE="/var/log/radxa_install.log"
+LOG_FILE="/var/log/raspi_install.log"
 touch "$LOG_FILE"
 echo "=== Installations-Log gestartet: $(date) ===" > "$LOG_FILE"
 
 APP_SRC="$(pwd)"
 APP_DIR="$APP_SRC"   # App laeuft direkt aus dem Repo – kein /opt-Kopieren noetig
-CFG_DIR="/etc/radxa_audio"
+CFG_DIR="/etc/raspi_audio"
 SOUNDS_DIR="${CFG_DIR}/sounds"
-WEB_SVC="radxa-audio-web"
-GPIO_SVC="radxa-audio-gpio"
+WEB_SVC="raspi-audio-web"
+GPIO_SVC="raspi-audio-gpio"
 STATIC_IP="192.168.1.120"
 SERVICE_IP="10.0.0.10"
 HOSTNAME_NEW="textspeicher"
@@ -194,7 +194,7 @@ grep -q "$HOSTNAME_NEW" /etc/hosts || {
 }
 systemctl enable avahi-daemon >> "$LOG_FILE" 2>&1 || true
 systemctl start  avahi-daemon >> "$LOG_FILE" 2>&1 || true
-cat > "/etc/avahi/services/radxa-audio.service" <<'EOF'
+cat > "/etc/avahi/services/raspi-audio.service" <<'EOF'
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <service-group>
@@ -403,7 +403,7 @@ log "Erstelle Startup-Netzwerk-Script..."
 cat > "${APP_DIR}/startup-network.sh" <<'NETSCRIPT'
 #!/bin/bash
 # Liest Netzwerk-Config und setzt IP + Gateway beim Start
-CFG="/etc/radxa_audio/config.json"
+CFG="/etc/raspi_audio/config.json"
 SERVICE_IP="10.0.0.10"
 
 IFACE=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('interface','eth0'))" 2>/dev/null || echo eth0)
@@ -455,10 +455,10 @@ cat > "/etc/systemd/system/${GPIO_SVC}.service" <<EOF
 [Unit]
 Description=Audio GPIO Daemon
 After=${WEB_SVC}.service pulseaudio-system.service
-ConditionPathExists=/usr/local/bin/radxa_gpio.py
+ConditionPathExists=/usr/local/bin/raspi_gpio.py
 
 [Service]
-ExecStart=/usr/bin/python3 /usr/local/bin/radxa_gpio.py
+ExecStart=/usr/bin/python3 /usr/local/bin/raspi_gpio.py
 Restart=always
 RestartSec=5
 User=root
@@ -472,7 +472,7 @@ systemctl enable "$GPIO_SVC" >> "$LOG_FILE" 2>&1 || true
 ok "GPIO-Service bereit"
 
 # ── 10. Alte Kiosk-Dienste entfernen (falls vorhanden) ───────────
-for svc in radxa-kiosk; do
+for svc in raspi-kiosk; do
   if systemctl is-enabled "$svc" 2>/dev/null | grep -q enabled; then
     systemctl disable "$svc" >> "$LOG_FILE" 2>&1 || true
     systemctl stop "$svc" >> "$LOG_FILE" 2>&1 || true
@@ -494,7 +494,7 @@ printf  "  ║  Service-IP:   %-30s║\n" "${SERVICE_IP}"
 printf  "  ║  Web-UI:      http://%-24s║\n" "${STATIC_IP}"
 printf  "  ║  mDNS:        http://%-24s║\n" "${HOSTNAME_NEW}.local"
 printf  "  ║  SSH:         ssh %s@%-19s║\n" "${DEFAULT_USER}" "${SERVICE_IP}"
-echo "  ║  Log:         /var/log/radxa_install.log     ║"
+echo "  ║  Log:         /var/log/raspi_install.log     ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 

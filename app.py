@@ -17,9 +17,9 @@ app = Flask(__name__)
 # ── Konstanten ────────────────────────────────────────────────────────────────
 SERVICE_IP      = "10.0.0.10"
 SERVICE_MASK    = "24"
-CONFIG_FILE     = "/etc/radxa_audio/config.json"
-MP3_FOLDER      = "/etc/radxa_audio/sounds"
-BOARD_FILE      = "/etc/radxa_audio/board.json"
+CONFIG_FILE     = "/etc/raspi_audio/config.json"
+MP3_FOLDER      = "/etc/raspi_audio/sounds"
+BOARD_FILE      = "/etc/raspi_audio/board.json"
 
 # ── Board-Erkennung (Raspberry Pi 3B/4) ─────────────────────────────────────
 def _load_board_info():
@@ -63,7 +63,7 @@ GPIO_PINS  = BOARD_INFO["gpio_pins"]
 GPIOCHIP   = BOARD_INFO["gpiochip"]
 print(f"[BOARD] {BOARD_INFO['board_name']} | GPIO: {GPIOCHIP} | Pins: {GPIO_PINS}", flush=True)
 
-SECRET_KEY_FILE  = "/etc/radxa_audio/.secret_key"
+SECRET_KEY_FILE  = "/etc/raspi_audio/.secret_key"
 DEFAULT_USER = BOARD_INFO.get("default_user", "pi")
 
 os.makedirs(MP3_FOLDER, exist_ok=True)
@@ -1131,7 +1131,7 @@ def _write_gpio_script(cfg):
                 "repeat": max(1, min(10, int(sc.get("repeat", 1)))),
             }
     if not gpio_map:
-        run("systemctl stop radxa-audio-gpio 2>/dev/null")
+        run("systemctl stop raspi-audio-gpio 2>/dev/null")
         return
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
     # Uses python3-gpiod (works on Radxa ROCK 3A, 4C+ and all libgpiod boards)
@@ -1213,7 +1213,7 @@ if hasattr(gpiod, 'request_lines'):
     from datetime import timedelta
     with gpiod.request_lines(
         CHIP,
-        consumer='radxa-audio',
+        consumer='raspi-audio',
         config={{
             tuple(GPIO_MAP.keys()): gpiod.LineSettings(
                 direction=Direction.INPUT,
@@ -1235,7 +1235,7 @@ else:
     chip  = gpiod.Chip(CHIP)
     lines = chip.get_lines(list(GPIO_MAP.keys()))
     lines.request(
-        consumer='radxa-audio',
+        consumer='raspi-audio',
         type=gpiod.LINE_REQ_EV_FALLING_EDGE,
         flags=gpiod.LINE_REQ_FLAG_BIAS_PULL_UP,
     )
@@ -1253,10 +1253,10 @@ else:
     finally:
         lines.release()
 """
-    with open("/usr/local/bin/radxa_gpio.py", "w") as f:
+    with open("/usr/local/bin/raspi_gpio.py", "w") as f:
         f.write(script)
-    os.chmod("/usr/local/bin/radxa_gpio.py", 0o755)
-    run("systemctl restart radxa-audio-gpio 2>/dev/null")
+    os.chmod("/usr/local/bin/raspi_gpio.py", 0o755)
+    run("systemctl restart raspi-audio-gpio 2>/dev/null")
 
 # ── API: Terminal ─────────────────────────────────────────────────────────────
 _TERM_BLOCKED = re.compile(
@@ -1316,8 +1316,8 @@ def api_health():
     # Uptime
     uptime = run("uptime -p 2>/dev/null || uptime")["out"]
     # Services
-    web_ok  = "active" in run("systemctl is-active radxa-audio-web 2>/dev/null")["out"]
-    gpio_ok = "active" in run("systemctl is-active radxa-audio-gpio 2>/dev/null")["out"]
+    web_ok  = "active" in run("systemctl is-active raspi-audio-web 2>/dev/null")["out"]
+    gpio_ok = "active" in run("systemctl is-active raspi-audio-gpio 2>/dev/null")["out"]
     return jsonify({
         "cpu_temp":   temp,
         "ram_total":  ram_total,
@@ -1359,7 +1359,7 @@ def api_audio_preview():
 # ── API: Reboot / Restart ───────────────────────────────────────────────────
 @app.route('/api/system/restart-service', methods=['POST'])
 def api_restart_service():
-    run("systemctl restart radxa-audio-web 2>/dev/null")
+    run("systemctl restart raspi-audio-web 2>/dev/null")
     return jsonify({"ok": True, "msg": "Service wird neu gestartet..."})
 
 @app.route('/api/system/reboot', methods=['POST'])
