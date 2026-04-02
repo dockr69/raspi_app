@@ -928,8 +928,10 @@ def api_mp3_trigger():
     _write_gpio_script(cfg)
     return jsonify({"ok": True})
 
-# Max Dateigroesse fuer Uploads (50MB)
-MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+# Max Dateigroesse fuer Uploads (500MB, fuer grosse ZIPs)
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024
+
+_AUDIO_EXTS = {'.mp3','.wav','.ogg','.flac','.aac','.m4a','.wma','.opus','.mp4','.aiff','.aif'}
 
 @app.route('/api/upload', methods=['POST'])
 def api_upload():
@@ -937,23 +939,12 @@ def api_upload():
     if 'file' not in request.files:
         return jsonify([{"ok": False, "error": "kein file"}]), 400
 
-    # 1. Alle Uploads erst auf Disk sichern (Werkzeug-Streams nicht thread-safe)
+    # 1. Alle Uploads auf Disk sichern; ZIPs entpacken
     _name_lock = threading.Lock()
     jobs = []
-    for f in request.files.getlist('file'):
-        orig = f.filename or "audio"
-        # Dateigroesse pruefen BEFORE speichern
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        f.seek(0)
-        if size > MAX_UPLOAD_SIZE:
-            jobs.append({"orig": orig, "error": f"Datei zu gross ({size//1024}KB > 50MB)"})
-            continue
+
+    def _add_job(orig, tmp_path):
         stem = sanitize(os.path.splitext(orig)[0]) or "audio"
-        ext  = re.sub(r'[^a-zA-Z0-9.]', '', os.path.splitext(orig)[1].lower())
-        tmp  = f"/tmp/_radxa_{stem}_{os.getpid()}_{len(jobs)}{ext}"
-        f.save(tmp)
-        # Ausgabe-Namen unter Lock reservieren → kein Namenskonflikt zwischen Threads
         with _name_lock:
             out_name = stem + ".mp3"
             out_path = os.path.join(MP3_FOLDER, out_name)
@@ -963,8 +954,46 @@ def api_upload():
                 out_path = os.path.join(MP3_FOLDER, out_name)
                 c += 1
             with open(out_path, 'wb') as _ph:
-                _ph.write(b'\x00')  # 1-Byte Platzhalter reservieren
-        jobs.append({"orig": orig, "tmp": tmp, "out_name": out_name, "out_path": out_path})
+                _ph.write(b'\x00')
+        jobs.append({"orig": orig, "tmp": tmp_path, "out_name": out_name, "out_path": out_path})
+
+    for f in request.files.getlist('file'):
+        orig = f.filename or "audio"
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(0)
+        if size > MAX_UPLOAD_SIZE:
+            jobs.append({"orig": orig, "error": f"Datei zu gross ({size//1024//1024}MB)"})
+            continue
+        ext = os.path.splitext(orig)[1].lower()
+        tmp = f"/tmp/_radxa_{sanitize(os.path.splitext(orig)[0]) or 'audio'}_{os.getpid()}_{len(jobs)}{re.sub(r'[^a-zA-Z0-9.]','',ext)}"
+        f.save(tmp)
+        if ext == '.zip':
+            # ZIP entpacken und alle Audio-Dateien als Jobs hinzufügen
+            try:
+                with zipfile.ZipFile(tmp, 'r') as zf:
+                    for entry in zf.namelist():
+                        entry_ext = os.path.splitext(entry)[1].lower()
+                        if entry_ext not in _AUDIO_EXTS:
+                            continue
+                        entry_base = os.path.basename(entry)
+                        if not entry_base:
+                            continue
+                        entry_tmp = f"/tmp/_radxa_zip_{sanitize(os.path.splitext(entry_base)[0]) or 'audio'}_{os.getpid()}_{len(jobs)}{re.sub(r'[^a-zA-Z0-9.]','',entry_ext)}"
+                        with zf.open(entry) as src, open(entry_tmp, 'wb') as dst:
+                            dst.write(src.read())
+                        _add_job(entry_base, entry_tmp)
+            except Exception as e:
+                jobs.append({"orig": orig, "error": f"ZIP-Fehler: {e}"})
+            finally:
+                try: os.remove(tmp)
+                except Exception: pass
+        elif ext in _AUDIO_EXTS:
+            _add_job(orig, tmp)
+        else:
+            try: os.remove(tmp)
+            except Exception: pass
+            jobs.append({"orig": orig, "error": f"Format nicht unterstützt: {ext}"})
 
     # 2. Parallel konvertieren — max. 4 ffmpeg-Prozesse gleichzeitig
     def convert(job):
@@ -1050,8 +1079,9 @@ def _write_gpio_script(cfg):
     # Supports gpiod 2.x API (Debian Bookworm+) with automatic fallback to gpiod 1.x
     script = f"""#!/usr/bin/env python3
 # GPIO-Daemon – auto-generiert von Radxa Audio Konfigurator
-# Kompatibel mit Radxa ROCK 3A, 4C+ und anderen Boards (gpiod 1.x + 2.x)
 import subprocess, time, os, sys, threading
+
+os.environ.setdefault('PULSE_SERVER', 'unix:/var/run/pulse/native')
 
 MP3_FOLDER  = {repr(str(MP3_FOLDER))}
 LINE_SOURCE = {repr(src)}

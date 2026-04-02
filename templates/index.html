@@ -504,7 +504,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div style="display:flex;gap:0">
         <button class="ds-tab active" id="s-tab-network" onclick="settingsTab('network')">🌐 Netzwerk</button>
         <button class="ds-tab" id="s-tab-audio" onclick="settingsTab('audio')">🎚 Audio</button>
-        <button class="ds-tab" id="s-tab-gpio" onclick="settingsTab('gpio')">🔌 GPIO</button>
       </div>
     </div>
 
@@ -616,22 +615,6 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
     </div>
 
     <!-- ── Tab: GPIO ── -->
-    <div id="s-pane-gpio" style="display:none">
-      <div class="card">
-        <div class="card-title">🔌 Pin-Mapping</div>
-        <div class="gpio-grid" id="s-gpio-grid"></div>
-        <div class="brow">
-          <button class="btn btn-green" onclick="sSaveGpio()">✓ Speichern</button>
-          <button class="btn btn-ghost btn-sm" onclick="sLoadGpio()">↺</button>
-        </div>
-        <div class="spill" id="s-gpio-status"></div>
-      </div>
-      <div class="card" style="padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--t2);line-height:2.2">
-        <b style="color:var(--text)">Wiring:</b> Taster zwischen GPIO-Pin und GND<br>
-        <b style="color:var(--text)">Pull-Up:</b> intern (PUD_UP) · <b style="color:var(--text)">Debounce:</b> 200 ms<br>
-        <span style="color:var(--t3)">Nur Sounds mit Trigger-Typ "GPIO" erscheinen hier.</span>
-      </div>
-    </div>
 
 
 
@@ -986,18 +969,19 @@ async function doDsUpload(files) {
   if (!files.length) return;
   const arr = Array.from(files);
   const ul  = document.getElementById('ds-up-list');
+  const hasZip = arr.some(f => f.name.toLowerCase().endsWith('.zip'));
 
   ul.innerHTML = arr.map((f, i) => `
     <div class="up-row" id="ds-up-${i}">
       <div class="up-row-top">
         <span class="up-name" title="${esc(f.name)}">${esc(f.name)}</span>
-        <span class="up-status converting" id="ds-up-st-${i}">⏳ konvertiert…</span>
+        <span class="up-status converting" id="ds-up-st-${i}">⏳ ${hasZip && f.name.toLowerCase().endsWith('.zip') ? 'entpacke & konvertiere…' : 'konvertiert…'}</span>
       </div>
       <div class="up-bar-wrap"><div class="up-bar" id="ds-up-bar-${i}" style="width:30%"></div></div>
       <div class="up-detail" id="ds-up-det-${i}"></div>
     </div>`).join('');
 
-  pill('ds-upload-status', `↑ ${arr.length} Datei${arr.length!==1?'en':''} werden parallel konvertiert…`, 'info');
+  pill('ds-upload-status', `↑ wird verarbeitet…`, 'info');
 
   const form = new FormData();
   arr.forEach(f => form.append('file', f));
@@ -1005,34 +989,47 @@ async function doDsUpload(files) {
   const results = await res.json();
 
   let okCount = 0;
-  results.forEach((r, i) => {
-    const row = document.getElementById(`ds-up-${i}`);
-    const bar = document.getElementById(`ds-up-bar-${i}`);
-    const st  = document.getElementById(`ds-up-st-${i}`);
-    const det = document.getElementById(`ds-up-det-${i}`);
-    if (!row) return;
-    if (r.ok) {
-      okCount++;
-      row.classList.add('done-ok');
-      bar.classList.add('done');
-      st.className   = 'up-status ok';
-      st.textContent = `✓ ${r.size_kb} KB`;
-      det.textContent = `→ ${r.saved_as}`;
-    } else {
-      row.classList.add('done-err');
-      bar.className  = 'up-bar err';
-      bar.style.width = '100%';
-      st.className   = 'up-status err';
-      st.textContent = '✗ Fehler';
-      det.textContent = r.error || 'Konvertierung fehlgeschlagen';
-    }
-  });
+  // Ergebnisse nach Datei gruppieren für die Anzeige
+  if (hasZip) {
+    // Bei ZIP: Alle Ergebnisse kompakt als Liste anzeigen
+    ul.innerHTML = results.map((r, i) => `
+      <div class="up-row ${r.ok ? 'done-ok' : 'done-err'}">
+        <div class="up-row-top">
+          <span class="up-name">${esc(r.original)}</span>
+          <span class="up-status ${r.ok ? 'ok' : 'err'}">${r.ok ? `✓ ${r.size_kb} KB` : '✗ Fehler'}</span>
+        </div>
+        ${r.ok ? `<div class="up-detail">→ ${esc(r.saved_as)}</div>` : `<div class="up-detail">${esc(r.error||'')}</div>`}
+      </div>`).join('');
+    okCount = results.filter(r => r.ok).length;
+  } else {
+    results.forEach((r, i) => {
+      const row = document.getElementById(`ds-up-${i}`);
+      const bar = document.getElementById(`ds-up-bar-${i}`);
+      const st  = document.getElementById(`ds-up-st-${i}`);
+      const det = document.getElementById(`ds-up-det-${i}`);
+      if (!row) return;
+      if (r.ok) {
+        okCount++;
+        row.classList.add('done-ok');
+        bar.classList.add('done');
+        st.className   = 'up-status ok';
+        st.textContent = `✓ ${r.size_kb} KB`;
+        det.textContent = `→ ${r.saved_as}`;
+      } else {
+        row.classList.add('done-err');
+        bar.className  = 'up-bar err';
+        bar.style.width = '100%';
+        st.className   = 'up-status err';
+        st.textContent = '✗ Fehler';
+        det.textContent = r.error || 'Konvertierung fehlgeschlagen';
+      }
+    });
+  }
 
   pill('ds-upload-status',
     `✓ ${okCount} von ${results.length} konvertiert`,
     okCount === results.length ? 'ok' : 'warn');
   dsFi.value = '';
-  // Sounds-Tab neu laden und drauf switchen
   await loadDashboard();
   dsSwitchTab('sounds');
 }
@@ -1050,13 +1047,12 @@ function closeSettings() {
   loadDashboard();
 }
 function settingsTab(tab) {
-  ['network','audio','gpio'].forEach(t => {
+  ['network','audio'].forEach(t => {
     const pane = document.getElementById(`s-pane-${t}`);
     const btn  = document.getElementById(`s-tab-${t}`);
     if(pane) pane.style.display = t===tab ? 'block' : 'none';
     if(btn)  btn.className = 'ds-tab' + (t===tab ? ' active' : '');
   });
-  if (tab === 'gpio') sLoadGpio();
 }
 async function loadSettingsData() {
   const st = await api('GET','/api/status');
@@ -1170,36 +1166,6 @@ async function sTestAudio() {
   pill('s-audio-status',r.ok?`▶ ${r.playing}`:r.msg||'Fehler',r.ok?'info':'warn');
 }
 
-// Settings: GPIO
-async function sLoadGpio() {
-  if(!mp3List.length) mp3List=await api('GET','/api/mp3s');
-  const cfg=await api('GET','/api/status');
-  const sounds = cfg.config?.sounds || {};
-  const mapping = {};
-  for (const [stem, sc] of Object.entries(sounds)) {
-    if (sc.trigger_type === 'gpio' && sc.gpio_pin != null) mapping[sc.gpio_pin] = stem;
-  }
-  const gpioSounds=mp3List.filter(f=>f.trigger_type==='gpio');
-  const opts=['— keiner —',...gpioSounds.map(f=>f.stem)];
-  const grid = document.getElementById('s-gpio-grid');
-  if(!gpioSounds.length){
-    grid.innerHTML='<div style="color:var(--t3);font-size:13px;padding:8px">Keine Sounds mit Trigger-Typ "GPIO" — erst bei Sounds den Trigger-Typ ändern.</div>';
-    return;
-  }
-  grid.innerHTML=GPIO_PINS.map(pin=>`
-    <div class="gpio-row">
-      <span class="gpio-pin">GPIO ${pin}</span>
-      <select id="s-gpio-${pin}">
-        ${opts.map(o=>`<option value="${o}"${(mapping[pin]||'— keiner —')===o?' selected':''}>${o}</option>`).join('')}
-      </select>
-    </div>`).join('');
-}
-async function sSaveGpio() {
-  const gpio={};
-  GPIO_PINS.forEach(p=>{const v=document.getElementById(`s-gpio-${p}`)?.value;if(v&&v!=='— keiner —')gpio[p]=v;});
-  await api('POST','/api/gpio/save',{gpio});
-  pill('s-gpio-status',`✓ ${Object.keys(gpio).length} Mapping(s) gespeichert`,'ok');
-}
 
 
 // ── Init ──────────────────────────────────────────────────────────────────────
