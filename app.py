@@ -17,7 +17,6 @@ app = Flask(__name__)
 # ── Konstanten ────────────────────────────────────────────────────────────────
 SERVICE_IP      = "10.0.0.10"
 SERVICE_MASK    = "24"
-DEFAULT_HOSTNAME = "textspeicher"
 CONFIG_FILE     = "/etc/radxa_audio/config.json"
 MP3_FOLDER      = "/etc/radxa_audio/sounds"
 BOARD_FILE      = "/etc/radxa_audio/board.json"
@@ -358,12 +357,6 @@ def _safe_mp3_path(name):
     if path.startswith(base + os.sep) and path != base:
         return path
     return None
-
-def is_setup_done():
-    return True  # Wizard entfernt — immer "fertig"
-
-def mark_setup_done():
-    pass  # Wizard entfernt
 
 def get_interfaces():
     out = run("ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo")["out"]
@@ -990,9 +983,10 @@ def api_upload():
             return {"ok": False, "original": job["orig"],
                     "error": (r["out"] or r["err"])[:300]}
 
-    results_map = {}
+    results_map = {j["orig"]: j for j in jobs if "error" in j}  # Vorab-Fehler direkt
+    convert_jobs = [j for j in jobs if "tmp" in j]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        future_to_job = {pool.submit(convert, j): j for j in jobs}
+        future_to_job = {pool.submit(convert, j): j for j in convert_jobs}
         for future in as_completed(future_to_job):
             job = future_to_job[future]
             try:
@@ -1421,7 +1415,6 @@ def api_schedules():
         schedules.append({"id": sid, "sound": sound, "time": time_s, "days": days, "enabled": enabled})
     cfg["schedules"] = schedules
     save_cfg(cfg)
-    _schedule_next(sid)
     return jsonify({"ok": True, "id": sid})
 
 @app.route('/api/schedules/delete', methods=['POST'])
@@ -1431,9 +1424,7 @@ def api_schedules_delete():
     cfg["schedules"] = [s for s in cfg.get("schedules", []) if s.get("id") != sid]
     save_cfg(cfg)
     with _sched_lock:
-        old = _sched_timers.pop(sid, None)
-        if old:
-            old.cancel()
+        _sched_jobstore.pop(sid, None)
     return jsonify({"ok": True})
 
 # Schedules beim Start laden
