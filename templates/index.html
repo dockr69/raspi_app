@@ -764,11 +764,6 @@ async function loadDashboard() {
   if (st.usb_audio) {
     document.getElementById('ds-usb-audio-tile').style.display = '';
   }
-  if (document.getElementById('s-net-mdns')) {
-    document.getElementById('s-net-mdns').textContent = 'http://' + mdns;
-  }
-  // Terminal-Prompt aktualisieren
-  if (window._updateTermHostname) window._updateTermHostname(hn);
   // GPIO-Pins vom Server übernehmen
   if (st.gpio_pins && st.gpio_pins.length) {
     GPIO_PINS = st.gpio_pins;
