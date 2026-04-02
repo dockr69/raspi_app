@@ -208,6 +208,25 @@ ok "Hostname + mDNS: ${HOSTNAME_NEW}.local"
 
 # ── 5. Netzwerk: Statische IP + Service-IP (kein DHCP) ───────────
 log "Konfiguriere Netzwerk: ${STATIC_IP} + Service-IP ${SERVICE_IP}..."
+
+# NetworkManager soll eth0 nicht anfassen (wir verwalten es selbst)
+if systemctl is-active NetworkManager &>/dev/null; then
+  mkdir -p /etc/NetworkManager/conf.d
+  cat > /etc/NetworkManager/conf.d/99-radxa-unmanaged.conf <<'NMEOF'
+[keyfile]
+unmanaged-devices=interface-name:eth0
+NMEOF
+  systemctl reload NetworkManager >> "$LOG_FILE" 2>&1 || true
+  ok "NetworkManager: eth0 auf unmanaged gesetzt"
+fi
+
+# dhcpcd deaktivieren falls aktiv (kollidiert mit statischer Config)
+if systemctl is-active dhcpcd &>/dev/null; then
+  systemctl disable dhcpcd >> "$LOG_FILE" 2>&1 || true
+  systemctl stop dhcpcd >> "$LOG_FILE" 2>&1 || true
+  ok "dhcpcd deaktiviert"
+fi
+
 IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 [ -z "$IFACE" ] && IFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v lo | head -1)
 [ -z "$IFACE" ] && IFACE="eth0"
@@ -215,6 +234,7 @@ IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}' || true)
 # Sofort setzen
 ip addr add "${STATIC_IP}/24" dev "$IFACE" >> "$LOG_FILE" 2>&1 || true
 ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" >> "$LOG_FILE" 2>&1 || true
+ip route del default >> "$LOG_FILE" 2>&1 || true
 ip route add default via 192.168.1.1 dev "$IFACE" >> "$LOG_FILE" 2>&1 || true
 
 # Persistent
@@ -239,21 +259,19 @@ iface ${IFACE}:service inet static
     address ${SERVICE_IP}/24
 EOF
 
-# rc.local Fallback
-RC="/etc/rc.local"
-MARKER="# radxa-service-ip"
-if [ -f "$RC" ] && ! grep -q "$MARKER" "$RC"; then
-  sed -i "s@^exit 0@${MARKER}\nip addr add ${STATIC_IP}/24 dev ${IFACE} 2>/dev/null || true\nip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true\n\nexit 0@" "$RC"
-elif [ ! -f "$RC" ]; then
-  cat > "$RC" <<RCEOF
+# rc.local Fallback (korrekte Labels + Gateway)
+cat > "/etc/rc.local" <<RCEOF
 #!/bin/bash
-${MARKER}
-ip addr add ${STATIC_IP}/24 dev ${IFACE} 2>/dev/null || true
-ip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true
+# radxa-audio – Netzwerk-Fallback (falls interfaces.d nicht greift)
+IFACE=\$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo | head -1)
+[ -z "\$IFACE" ] && IFACE=eth0
+ip addr add ${STATIC_IP}/24 dev "\$IFACE" 2>/dev/null || true
+ip addr add ${SERVICE_IP}/24 dev "\$IFACE" label "\${IFACE}:service" 2>/dev/null || true
+ip route del default 2>/dev/null
+ip route add default via 192.168.1.1 dev "\$IFACE" 2>/dev/null || true
 exit 0
 RCEOF
-  chmod +x "$RC"
-fi
+chmod +x "/etc/rc.local"
 ok "Statische IP: ${STATIC_IP}, Service-IP: ${SERVICE_IP} auf ${IFACE}"
 
 # ── 6. PulseAudio System-Modus (damit root Soundkarten sieht) ────
@@ -339,6 +357,28 @@ if echo "$BOARD" | grep -q "rpi"; then
 fi
 
 # ── 8. systemd: Web-Service ─────────────────────────────────────
+log "Erstelle Startup-Netzwerk-Script..."
+cat > "${APP_DIR}/startup-network.sh" <<'NETSCRIPT'
+#!/bin/bash
+# Liest Netzwerk-Config und setzt IP + Gateway beim Start
+CFG="/etc/radxa_audio/config.json"
+SERVICE_IP="10.0.0.10"
+
+IFACE=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('interface','eth0'))" 2>/dev/null || echo eth0)
+IP=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('ip',''))" 2>/dev/null || true)
+GW=$(python3 -c "import json; print(json.load(open('$CFG')).get('network',{}).get('gateway',''))" 2>/dev/null || true)
+MASK=$(python3 -c "import json; m=json.load(open('$CFG')).get('network',{}).get('mask','255.255.255.0'); print(sum(bin(int(x)).count('1') for x in m.split('.')))" 2>/dev/null || echo 24)
+
+[ -n "$IP" ] && ip addr add "${IP}/${MASK}" dev "$IFACE" 2>/dev/null || true
+ip addr add "${SERVICE_IP}/24" dev "$IFACE" label "${IFACE}:service" 2>/dev/null || true
+if [ -n "$GW" ]; then
+    ip route del default 2>/dev/null
+    ip route add default via "$GW" dev "$IFACE" 2>/dev/null || true
+fi
+NETSCRIPT
+chmod +x "${APP_DIR}/startup-network.sh"
+ok "Startup-Netzwerk-Script erstellt"
+
 log "Erstelle Web-Service..."
 cat > "/etc/systemd/system/${WEB_SVC}.service" <<EOF
 [Unit]
@@ -347,7 +387,7 @@ After=network.target sound.target avahi-daemon.service pulseaudio-system.service
 Wants=avahi-daemon.service pulseaudio-system.service
 
 [Service]
-ExecStartPre=/bin/bash -c "ip addr add ${STATIC_IP}/24 dev ${IFACE} 2>/dev/null || true; ip addr add ${SERVICE_IP}/24 dev ${IFACE} label ${IFACE}:service 2>/dev/null || true"
+ExecStartPre=${APP_DIR}/startup-network.sh
 ExecStart=/usr/bin/python3 ${APP_DIR}/app.py
 WorkingDirectory=${APP_DIR}
 Restart=always

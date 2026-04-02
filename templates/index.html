@@ -930,6 +930,7 @@ async function api(method, url, body) {
 }
 function pill(id, msg, type='info') {
   const el = document.getElementById(id);
+  if (!el) return;
   el.className = `spill show ${type}`; el.innerHTML = msg;
   if (type==='ok') setTimeout(()=>el.classList.remove('show'), 5000);
 }
@@ -948,62 +949,12 @@ async function dsSaveVolume() {
   pill('ds-vol-status', r.ok ? '✓ Gespeichert' : '✗ Fehler', r.ok ? 'ok' : 'err');
 }
 
-// ── MP3 Liste ─────────────────────────────────────────────────────────────────
-async function loadMp3s() {
-  mp3List = await api('GET','/api/mp3s');
-  const ul = document.getElementById('mp3-list');
-  const isOffline = appMode === 'offline';
-  document.getElementById('mp3-count').textContent = `${mp3List.length} Datei${mp3List.length!==1?'en':''}`;
-  // Sounds-Untertitel anpassen
-  const sub = document.getElementById('sounds-subtitle');
-  if (sub) sub.textContent = isOffline
-    ? 'MP3s hochladen — alle Sounds werden per GPIO-Taster ausgelöst'
-    : 'MP3s hochladen & Trigger-Typ pro Sound festlegen: HTTP oder GPIO';
-  if (!mp3List.length) {
-    ul.innerHTML='<div style="text-align:center;padding:22px;color:var(--t3);font-size:13px">Noch keine Sounds — oben hochladen</div>';
-    return;
-  }
-  ul.innerHTML = mp3List.map(f => {
-    const isGpio = isOffline || f.trigger_type === 'gpio';
-    const badge  = isGpio
-      ? `<span class="ttype-badge ttype-gpio">🔌 GPIO</span>`
-      : `<span class="ttype-badge ttype-http">🌐 HTTP</span>`;
-    const metaText = isOffline
-      ? `GPIO-Taster → ${esc(f.name)}`
-      : `/cgi-bin/index.cgi?…&spotrequest=${esc(f.name)}`;
-    return `<div class="mp3-row" id="mr-${esc(f.name)}">
-      <span class="mp3-icon">♪</span>
-      <div class="mp3-info">
-        <div class="mp3-name">${esc(f.name)}</div>
-        <div class="mp3-meta">${metaText}</div>
-      </div>
-      ${badge}
-      ${f.repeat > 1 ? `<span class="ttype-badge" style="background:rgba(0,212,255,.08);color:var(--acc);border:1px solid rgba(0,212,255,.2)">🔁 ×${f.repeat}</span>` : ''}
-      <div class="mp3-size">${f.size_kb} KB</div>
-      <div class="mp3-actions">
-        <button class="btn btn-primary btn-sm" onclick="playMp3('${esc(f.name)}')">▶</button>
-        <button class="btn btn-ghost btn-sm" title="${isOffline?'GPIO & Repeat':'Trigger-Typ'}" onclick="openTriggerModal('${esc(f.stem)}','${esc(f.name)}','${f.trigger_type||'http'}',${f.gpio_pin||'null'},${f.repeat||1})">⚡</button>
-        <button class="btn btn-ghost btn-sm" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteMp3('${esc(f.name)}')">✕</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-async function playMp3(name) {
-  document.querySelectorAll('.mp3-row').forEach(r=>r.classList.remove('playing'));
-  const el = document.getElementById(`mr-${name}`);
-  if (el) el.classList.add('playing');
-  await api('POST','/api/mp3s/play',{name});
-  setTimeout(()=>{ if(el) el.classList.remove('playing'); },5000);
-  pill('sounds-status',`▶ ${name}`,'info');
-}
 
 async function deleteMp3(name) {
   if (!confirm(`"${name}" löschen?`)) return;
   const r = await api('POST','/api/mp3s/delete',{name});
-  if (r.ok) { pill('sounds-status',`✓ Gelöscht: ${name}`,'ok'); loadMp3s(); }
-  else pill('sounds-status',`✗ ${r.msg}`,'err');
+  if (r.ok) { pill('ds-upload-status',`✓ Gelöscht: ${name}`,'ok'); loadDashboard(); }
+  else pill('ds-upload-status',`✗ ${r.msg}`,'err');
 }
 
 // ── Rename ────────────────────────────────────────────────────────────────────
@@ -1017,10 +968,10 @@ function closeModal() { document.getElementById('rename-modal').classList.remove
 async function doRename() {
   const old=document.getElementById('rename-old').value;
   const nw=document.getElementById('rename-input').value.trim();
-  if(!nw){ pill('sounds-status','✗ Name darf nicht leer sein','err'); closeModal(); return; }
+  if(!nw){ pill('ds-upload-status','✗ Name darf nicht leer sein','err'); closeModal(); return; }
   const r=await api('POST','/api/mp3s/rename',{old,new:nw});
-  if(r.ok){ closeModal(); pill('sounds-status',`✓ → ${r.new_name}`,'ok'); loadMp3s(); }
-  else pill('sounds-status',`✗ ${r.msg}`,'err');
+  if(r.ok){ closeModal(); pill('ds-upload-status',`✓ → ${r.new_name}`,'ok'); loadDashboard(); }
+  else pill('ds-upload-status',`✗ ${r.msg}`,'err');
 }
 document.getElementById('rename-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
 document.getElementById('rename-input').addEventListener('keydown',e=>{if(e.key==='Enter')doRename();if(e.key==='Escape')closeModal();});
@@ -1068,10 +1019,10 @@ async function saveTriggerType() {
   const r = await api('POST','/api/mp3s/trigger',{stem, trigger_type:selectedTriggerType, gpio_pin:gpioPin, repeat});
   if (r.ok) {
     closeTriggerModal();
-    pill('sounds-status',`✓ Trigger für ${stem}: ${selectedTriggerType.toUpperCase()}`,'ok');
-    loadMp3s();
+    pill('ds-upload-status',`✓ Trigger für ${stem}: ${selectedTriggerType.toUpperCase()}`,'ok');
+    loadDashboard();
   } else {
-    pill('sounds-status',`✗ ${r.msg || 'Fehler beim Speichern'}`,'err');
+    pill('ds-upload-status',`✗ ${r.msg || 'Fehler beim Speichern'}`,'err');
   }
 }
 document.getElementById('trigger-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeTriggerModal();});

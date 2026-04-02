@@ -220,18 +220,22 @@ def run(cmd, timeout=20):
     except Exception as e:
         return {"out": "", "err": str(e), "ok": False}
 
+_cfg_lock = threading.Lock()
+
 def load_cfg():
     try:
-        with open(CONFIG_FILE) as f:
-            return json.load(f)
+        with _cfg_lock:
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
     except Exception:
         return {}
 
 def save_cfg(data):
-    tmp = CONFIG_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, CONFIG_FILE)
+    with _cfg_lock:
+        tmp = CONFIG_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, CONFIG_FILE)
 
 def sanitize(name):
     name = re.sub(r'\s+', '_', name.strip())
@@ -430,10 +434,11 @@ def _play_thread(path, source, repeat=1):
     sink = cfg.get("audio", {}).get("sink", "@DEFAULT_SINK@")
     with _play_lock:
         run(f"pactl set-source-mute {shlex.quote(source)} 1")
-        for _ in range(repeat):
-            # Play über den konfigurierten Ausgang
-            run(f"PULSE_SINK={shlex.quote(sink)} mpg123 -q {shlex.quote(path)}", timeout=300)
-        run(f"pactl set-source-mute {shlex.quote(source)} 0")
+        try:
+            for _ in range(repeat):
+                run(f"PULSE_SINK={shlex.quote(sink)} mpg123 -q {shlex.quote(path)}", timeout=300)
+        finally:
+            run(f"pactl set-source-mute {shlex.quote(source)} 0")
 
 def trigger_play(name):
     """Zentraler Play-Einstiegspunkt. Gibt (ok, msg) zurück."""
@@ -475,6 +480,20 @@ ensure_service_ip()
 
 # Audio-Loopback sicherstellen (Line-In → Line-Out Passthrough)
 ensure_loopback()
+
+# Lautstärke beim Start aus Config wiederherstellen
+def _restore_volume():
+    cfg = load_cfg()
+    a = cfg.get("audio", {})
+    sink = a.get("sink", "@DEFAULT_SINK@")
+    src  = a.get("source", "@DEFAULT_SOURCE@")
+    vol_out = a.get("volume", 100)
+    vol_in  = a.get("input_volume", 100)
+    run(f"pactl set-sink-volume {shlex.quote(sink)} {vol_out}%")
+    run(f"pactl set-source-volume {shlex.quote(src)} {vol_in}%")
+    print(f"[AUDIO] Volume restored: out={vol_out}% in={vol_in}%", flush=True)
+
+_restore_volume()
 
 # Sleep/Suspend beim Start deaktivieren (headless, kein Display)
 run("systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null")
@@ -519,6 +538,8 @@ def api_status():
     usb_audio = run("lsusb 2>/dev/null | grep -i audio")
     # Loopback-Status
     loopback_active = _get_loopback_id() is not None
+    # Config ohne sensible Daten (auth) ans Frontend geben
+    safe_cfg = {k: v for k, v in cfg.items() if k != "auth"}
     return jsonify({
         "setup_done":    True,
         "service_ip":    SERVICE_IP,
@@ -529,7 +550,7 @@ def api_status():
         "mp3_count":     len(list_mp3s()),
         "ssh_active":    "active" in ssh["out"],
         "mode":          cfg.get("mode", "online"),
-        "config":        cfg,
+        "config":        safe_cfg,
         "board":         BOARD_INFO,
         "usb_audio":     bool(usb_audio["ok"] and usb_audio["out"]),
         "gpio_pins":     GPIO_PINS,
@@ -619,6 +640,16 @@ def api_net_apply():
 
     except PermissionError:
         errors.append("Root-Rechte fehlen für /etc/network")
+
+    # ── NetworkManager: Interface unmanaged setzen ─────────────────
+    nm_conf = "/etc/NetworkManager/conf.d/99-radxa-unmanaged.conf"
+    try:
+        os.makedirs(os.path.dirname(nm_conf), exist_ok=True)
+        with open(nm_conf, "w") as f:
+            f.write(f"[keyfile]\nunmanaged-devices=interface-name:{iface}\n")
+        run("systemctl reload NetworkManager 2>/dev/null")
+    except Exception:
+        pass
 
     # ── Sofort anwenden ───────────────────────────────────────────────
     run(f"ip addr add {shlex.quote(ip)}/{prefix} dev {shlex.quote(iface)} 2>/dev/null")
