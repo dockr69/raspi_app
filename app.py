@@ -444,9 +444,10 @@ def list_mp3s():
             "name":         f,
             "stem":         stem,
             "size_kb":      os.path.getsize(os.path.join(MP3_FOLDER, f)) // 1024,
-            "trigger_type": sc.get("trigger_type", "http"),  # "http" | "gpio"
+            "trigger_type": sc.get("trigger_type", "http"),
             "gpio_pin":     sc.get("gpio_pin", None),
             "repeat":       max(1, min(10, int(sc.get("repeat", 1)))),
+            "timeout":      max(0, min(300, int(sc.get("timeout", 0)))),
         })
     return result
 
@@ -1037,10 +1038,15 @@ def api_mp3_trigger():
         repeat = max(1, min(10, int(d.get("repeat", 1))))
     except (TypeError, ValueError):
         repeat = 1
+    try:
+        timeout = max(0, min(300, int(d.get("timeout", 0))))
+    except (TypeError, ValueError):
+        timeout = 0
     cfg["sounds"][stem] = {
         "trigger_type": ttype,
         "gpio_pin":     pin if ttype == "gpio" else None,
         "repeat":       repeat,
+        "timeout":      timeout,
     }
     save_cfg(cfg)
     # GPIO-Script neu generieren
@@ -1187,8 +1193,9 @@ def _write_gpio_script(cfg):
     for stem, sc in cfg.get("sounds", {}).items():
         if sc.get("trigger_type") == "gpio" and sc.get("gpio_pin") is not None:
             gpio_map[sc["gpio_pin"]] = {
-                "stem":   stem,
-                "repeat": max(1, min(10, int(sc.get("repeat", 1)))),
+                "stem":    stem,
+                "repeat":  max(1, min(10, int(sc.get("repeat", 1)))),
+                "timeout": max(0, min(300, int(sc.get("timeout", 0)))),
             }
     if not gpio_map:
         run("systemctl stop raspi-audio-gpio 2>/dev/null")
@@ -1206,7 +1213,18 @@ MP3_FOLDER  = {repr(str(MP3_FOLDER))}
 LINE_SOURCE = {repr(src)}
 GPIO_MAP    = {repr(gpio_map)}
 CHIP        = {repr(GPIOCHIP)}
-DEBOUNCE    = 0.5  # 500ms – verhindert Doppelausloesung bei prellenden Tastern
+DEBOUNCE    = 0.3  # 300ms Hardware-Debounce gegen Prellen
+
+print(f"[GPIO] Daemon gestartet | Pins={{list(GPIO_MAP.keys())}} | Chip={{CHIP}}", flush=True)
+
+def _source_exists():
+    '''Prueft ob LINE_SOURCE in PulseAudio vorhanden ist.'''
+    try:
+        r = subprocess.run(['pactl', 'list', 'sources', 'short'],
+                           capture_output=True, timeout=2)
+        return LINE_SOURCE in r.stdout.decode()
+    except Exception:
+        return False
 
 def pactl_available():
     try:
@@ -1216,47 +1234,59 @@ def pactl_available():
         return False
 
 _last  = {{}}
-_busy  = {{}}   # pro Pin: True waehrend Sound laeuft
+_busy  = {{}}
 _lock  = threading.Lock()
 
-def _can_trigger(pin):
-    '''Gibt True zurueck wenn Pin weder gerade spielt noch im Debounce-Fenster ist.'''
+def _can_trigger(pin, timeout_sec):
+    '''True wenn Pin nicht busy und ausserhalb des Timeout-Fensters.'''
     now = time.monotonic()
+    cooldown = max(DEBOUNCE, timeout_sec if timeout_sec > 0 else DEBOUNCE)
     with _lock:
         if _busy.get(pin):
             return False
-        if now - _last.get(pin, 0) < DEBOUNCE:
+        if now - _last.get(pin, 0) < cooldown:
             return False
         _last[pin] = now
         _busy[pin] = True
     return True
 
 def play(pin, entry):
-    stem   = entry['stem']
-    repeat = entry.get('repeat', 1)
-    path   = os.path.join(MP3_FOLDER, stem + '.mp3')
+    stem    = entry['stem']
+    repeat  = entry.get('repeat', 1)
+    timeout = entry.get('timeout', 0)
+    path    = os.path.join(MP3_FOLDER, stem + '.mp3')
+    print(f"[GPIO] Pin {{pin}} ausgeloest → {{stem}}", flush=True)
     try:
         if not os.path.isfile(path):
-            print(f"[GPIO] File not found: {{path}}", file=sys.stderr)
+            print(f"[GPIO] Datei nicht gefunden: {{path}}", file=sys.stderr, flush=True)
             return
         if not pactl_available():
-            print(f"[GPIO] PulseAudio nicht erreichbar", file=sys.stderr)
+            print(f"[GPIO] PulseAudio nicht erreichbar", file=sys.stderr, flush=True)
             return
-        try:
-            subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'], timeout=2)
-        except Exception as e:
-            print(f"[GPIO] Mute failed: {{e}}", file=sys.stderr)
-        for _ in range(repeat):
+        has_source = _source_exists()
+        if has_source:
             try:
-                subprocess.run(['mpg123', '-q', path], timeout=300)
-            except subprocess.TimeoutExpired:
-                print(f"[GPIO] Playback timeout", file=sys.stderr)
+                subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '1'], timeout=2)
             except Exception as e:
-                print(f"[GPIO] Playback error: {{e}}", file=sys.stderr)
-        try:
-            subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'], timeout=2)
-        except Exception as e:
-            print(f"[GPIO] Unmute failed: {{e}}", file=sys.stderr)
+                print(f"[GPIO] Mute fehlgeschlagen: {{e}}", file=sys.stderr, flush=True)
+        for i in range(repeat):
+            try:
+                r = subprocess.run(['mpg123', '-q', path], timeout=300)
+                if r.returncode != 0:
+                    print(f"[GPIO] mpg123 Fehler exit={{r.returncode}}", file=sys.stderr, flush=True)
+            except subprocess.TimeoutExpired:
+                print(f"[GPIO] Playback Timeout", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[GPIO] Playback Fehler: {{e}}", file=sys.stderr, flush=True)
+        if has_source:
+            try:
+                subprocess.run(['pactl', 'set-source-mute', LINE_SOURCE, '0'], timeout=2)
+            except Exception as e:
+                print(f"[GPIO] Unmute fehlgeschlagen: {{e}}", file=sys.stderr, flush=True)
+        print(f"[GPIO] Pin {{pin}} fertig", flush=True)
+        # Timeout abwarten bevor Pin wieder freigegeben wird
+        if timeout > 0:
+            time.sleep(timeout)
     finally:
         with _lock:
             _busy[pin] = False
@@ -1286,9 +1316,9 @@ if hasattr(gpiod, 'request_lines'):
         while True:
             if req.wait_edge_events(timeout=timedelta(seconds=1)):
                 for ev in req.read_edge_events():
-                    entry = GPIO_MAP.get(ev.line_offset)
-                    pin = ev.line_offset
-                    if entry and _can_trigger(pin):
+                    pin   = ev.line_offset
+                    entry = GPIO_MAP.get(pin)
+                    if entry and _can_trigger(pin, entry.get('timeout', 0)):
                         threading.Thread(target=play, args=(pin, entry), daemon=True).start()
 else:
     # gpiod 1.x
@@ -1308,7 +1338,7 @@ else:
                     if ev.type == gpiod.LineEvent.FALLING_EDGE:
                         pin   = line.offset()
                         entry = GPIO_MAP.get(pin)
-                        if entry and _can_trigger(pin):
+                        if entry and _can_trigger(pin, entry.get('timeout', 0)):
                             threading.Thread(target=play, args=(pin, entry), daemon=True).start()
     finally:
         lines.release()
