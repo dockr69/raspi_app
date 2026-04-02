@@ -217,10 +217,20 @@ def _load_secret_key():
 app.secret_key = _load_secret_key()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def run(cmd, timeout=20):
+def run(cmd, timeout=20, env=None):
+    """Execute shell command with optional custom environment."""
     try:
+        run_env = os.environ.copy()
+        if env:
+            run_env.update(env)
+        # Ensure PULSE_SERVER is set for system-mode PulseAudio (fixed socket path)
+        if not run_env.get("PULSE_SERVER"):
+            for _sock in ("/run/pulse/native", "/var/run/pulse/native"):
+                if os.path.exists(_sock):
+                    run_env["PULSE_SERVER"] = f"unix:{_sock}"
+                    break
         r = subprocess.run(cmd, shell=True, capture_output=True,
-                           text=True, timeout=timeout)
+                           text=True, timeout=timeout, env=run_env)
         return {"out": r.stdout.strip(), "err": r.stderr.strip(),
                 "ok": r.returncode == 0}
     except subprocess.TimeoutExpired:
@@ -401,18 +411,24 @@ def ensure_service_ip(iface=None):
 _EXCLUDE_CARDS = ("alsa_output.platform-", "alsa_input.platform-", "alsa_output.bcm", "alsa_input.bcm")
 
 def detect_sources():
+    """Detect PulseAudio sources with robust error handling."""
     out = run("pactl list sources short 2>/dev/null")["out"]
     sources = [l.split()[1] for l in out.splitlines()
                if len(l.split()) >= 2
                and "monitor" not in l.split()[1].lower()
                and not l.split()[1].startswith(_EXCLUDE_CARDS)]
+    # Filter out HDMI/invalid sources
+    sources = [s for s in sources if "hdmi" not in s.lower() and "vc4" not in s.lower()]
     return sources or ["@DEFAULT_SOURCE@"]
 
 def _detect_sinks():
+    """Detect PulseAudio sinks with robust error handling."""
     out = run("pactl list sinks short 2>/dev/null")["out"]
     sinks = [l.split()[1] for l in out.splitlines()
              if len(l.split()) >= 2
              and not l.split()[1].startswith(_EXCLUDE_CARDS)]
+    # Filter out HDMI/invalid sinks
+    sinks = [s for s in sinks if "hdmi" not in s.lower() and "vc4" not in s.lower()]
     return sinks or ["@DEFAULT_SINK@"]
 
 def list_mp3s():
@@ -487,7 +503,16 @@ _ensure_default_config()
 ensure_service_ip()
 
 # Audio-Loopback sicherstellen (Line-In → Line-Out Passthrough)
-ensure_loopback()
+# In background thread to avoid blocking startup / watchdog timeout
+def _startup_loopback():
+    for attempt in range(10):
+        time.sleep(2)
+        if _get_loopback_id():
+            break
+        ensure_loopback()
+        if _loopback_module_id:
+            break
+threading.Thread(target=_startup_loopback, daemon=True).start()
 
 # Lautstärke beim Start aus Config wiederherstellen
 def _restore_volume():
@@ -547,6 +572,11 @@ def api_status():
     loopback_active = _get_loopback_id() is not None
     # Config ohne sensible Daten (auth) ans Frontend geben
     safe_cfg = {k: v for k, v in cfg.items() if k != "auth"}
+    # Audio-Platzhalter auflösen
+    if safe_cfg.get("audio", {}).get("source") == "@DEFAULT_SOURCE@":
+        safe_cfg.setdefault("audio", {})["source"] = _resolve_default_source("@DEFAULT_SOURCE@")
+    if safe_cfg.get("audio", {}).get("sink") == "@DEFAULT_SINK@":
+        safe_cfg.setdefault("audio", {})["sink"] = _resolve_default_sink("@DEFAULT_SINK@")
     return jsonify({
         "setup_done":    True,
         "service_ip":    SERVICE_IP,
@@ -754,12 +784,27 @@ def api_ping():
     return jsonify({"ok": r["ok"], "msg": r["out"] or r["err"]})
 
 # ── API: Audio ────────────────────────────────────────────────────────────────
+def _resolve_default_source(src):
+    """Resolve @DEFAULT_SOURCE@ placeholder to actual device name."""
+    if src == "@DEFAULT_SOURCE@":
+        sources = detect_sources()
+        return sources[0] if sources else "@DEFAULT_SOURCE@"
+    return src
+
+def _resolve_default_sink(sink):
+    """Resolve @DEFAULT_SINK@ placeholder to actual device name."""
+    if sink == "@DEFAULT_SINK@":
+        sinks = _detect_sinks()
+        return sinks[0] if sinks else "@DEFAULT_SINK@"
+    return sink
+
 @app.route('/api/audio/sources')
 def api_sources():
     sources = detect_sources()
     if len(sources) == 1:
         cfg = load_cfg()
-        if not cfg.get("audio", {}).get("source"):
+        stored_source = cfg.get("audio", {}).get("source")
+        if not stored_source or stored_source == "@DEFAULT_SOURCE@":
             cfg.setdefault("audio", {})["source"] = sources[0]
             save_cfg(cfg)
     return jsonify([{"name": s, "alias": _audio_alias(s)} for s in sources])
@@ -769,7 +814,8 @@ def api_sinks():
     sinks = _detect_sinks()
     if len(sinks) == 1:
         cfg = load_cfg()
-        if not cfg.get("audio", {}).get("sink"):
+        stored_sink = cfg.get("audio", {}).get("sink")
+        if not stored_sink or stored_sink == "@DEFAULT_SINK@":
             cfg.setdefault("audio", {})["sink"] = sinks[0]
             save_cfg(cfg)
     return jsonify([{"name": s, "alias": _audio_alias(s)} for s in sinks])

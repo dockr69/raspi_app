@@ -822,13 +822,17 @@ async function dsChangeTrigger(stem, val) {
   const cur = _dsSounds.find(s=>s.stem===stem);
   const repeat = cur ? cur.repeat : 1;
   await api('POST','/api/mp3s/trigger',{stem, trigger_type:ttype, gpio_pin:pin, repeat});
-  mp3List = await api('GET','/api/mp3s');
-  _dsSounds = mp3List;
+  _dsSounds = await api('GET','/api/mp3s');
+  const st = document.getElementById('ds-static-ip')?.textContent || '';
+  renderSoundTable(_dsSounds, st);
 }
 async function dsChangeRepeat(stem, val) {
   const f = _dsSounds.find(s=>s.stem===stem);
   if (!f) return;
   await api('POST','/api/mp3s/trigger',{stem, trigger_type:f.trigger_type||'http', gpio_pin:f.gpio_pin, repeat:parseInt(val)});
+  _dsSounds = await api('GET','/api/mp3s');
+  const st = document.getElementById('ds-static-ip')?.textContent || '';
+  renderSoundTable(_dsSounds, st);
 }
 async function dsPlaySound(name) {
   await api('POST','/api/mp3s/play',{name});
