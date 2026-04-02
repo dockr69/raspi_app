@@ -1393,7 +1393,12 @@ def api_backup_import():
         return jsonify({"ok": False, "msg": "Keine Datei"}), 400
     f = request.files['file']
     try:
+        MAX_ENTRY_SIZE = 200 * 1024 * 1024  # 200 MB pro Datei
         with zipfile.ZipFile(f.stream, 'r') as zf:
+            # ZIP-Bomb-Schutz: unkomprimierte Gesamtgroesse pruefen
+            total_size = sum(i.file_size for i in zf.infolist())
+            if total_size > 2 * 1024 * 1024 * 1024:  # 2 GB
+                return jsonify({"ok": False, "msg": "ZIP zu gross (max 2 GB unkomprimiert)"}), 400
             names = zf.namelist()
             # Config importieren
             if "config.json" in names:
@@ -1403,6 +1408,9 @@ def api_backup_import():
             imported = 0
             for name in names:
                 if name.startswith("sounds/") and name.endswith(".mp3"):
+                    info = zf.getinfo(name)
+                    if info.file_size > MAX_ENTRY_SIZE:
+                        continue
                     basename = os.path.basename(name)
                     if basename:
                         target = os.path.join(MP3_FOLDER, basename)
@@ -1443,8 +1451,15 @@ def _schedule_all():
 def _get_cron_delay(time_s, days):
     """Berechnet Sekunden bis zum naechsten Termin."""
     import datetime
+    try:
+        parts = time_s.split(":")
+        h, m = int(parts[0]), int(parts[1])
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"Ungueltige Zeit: {time_s}")
+    except (ValueError, IndexError) as e:
+        print(f"[SCHEDULE] Ungueltige Zeit '{time_s}': {e}", flush=True)
+        return 86400, datetime.datetime.now() + datetime.timedelta(days=1)
     now = datetime.datetime.now()
-    h, m = map(int, time_s.split(":"))
     target = now.replace(hour=h, minute=m, second=0, microsecond=0)
     if target <= now:
         target += datetime.timedelta(days=1)
@@ -1457,27 +1472,30 @@ def _schedule_runner():
     """Laueft im Hintergrund und fuehrt Schedules aus."""
     import datetime
     while True:
-        time.sleep(30)  # Alle 30s pruefen
-        now = datetime.datetime.now()
-        schedules = _load_schedules()
-        for s in schedules:
-            if not s.get("enabled", True) or not s.get("id"):
-                continue
-            sched_id = s["id"]
-            time_s = s.get("time", "")
-            days = s.get("days", [0,1,2,3,4,5,6])
-            if not time_s or not s.get("sound"):
-                continue
-            delay, target = _get_cron_delay(time_s, days)
-            # Wenn Zielzeit erreicht (Toleranz 60s)
-            if delay < 60:
-                with _sched_lock:
-                    last_run = _sched_jobstore.get(sched_id)
-                    if last_run and abs((target - last_run).total_seconds()) < 120:
-                        continue
-                    _sched_jobstore[sched_id] = target
-                print(f"[SCHEDULE] Running: {s['sound']} at {target}", flush=True)
-                _run_scheduled(sched_id)
+        try:
+            time.sleep(30)  # Alle 30s pruefen
+            now = datetime.datetime.now()
+            schedules = _load_schedules()
+            for s in schedules:
+                if not s.get("enabled", True) or not s.get("id"):
+                    continue
+                sched_id = s["id"]
+                time_s = s.get("time", "")
+                days = s.get("days", [0,1,2,3,4,5,6])
+                if not time_s or not s.get("sound"):
+                    continue
+                delay, target = _get_cron_delay(time_s, days)
+                # Wenn Zielzeit erreicht (Toleranz 60s)
+                if delay < 60:
+                    with _sched_lock:
+                        last_run = _sched_jobstore.get(sched_id)
+                        if last_run and abs((target - last_run).total_seconds()) < 120:
+                            continue
+                        _sched_jobstore[sched_id] = target
+                    print(f"[SCHEDULE] Running: {s['sound']} at {target}", flush=True)
+                    _run_scheduled(sched_id)
+        except Exception as e:
+            print(f"[SCHEDULE] Runner-Fehler (wird fortgesetzt): {e}", flush=True)
 
 # Schedule-Runner als Daemon-Thread starten
 _schedule_thread = threading.Thread(target=_schedule_runner, daemon=True)

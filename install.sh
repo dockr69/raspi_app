@@ -18,7 +18,7 @@ touch "$LOG_FILE"
 echo "=== Installations-Log gestartet: $(date) ===" > "$LOG_FILE"
 
 APP_SRC="$(pwd)"
-APP_DIR="/opt/radxa_audio"
+APP_DIR="$APP_SRC"   # App laeuft direkt aus dem Repo – kein /opt-Kopieren noetig
 CFG_DIR="/etc/radxa_audio"
 SOUNDS_DIR="${CFG_DIR}/sounds"
 WEB_SVC="radxa-audio-web"
@@ -131,9 +131,8 @@ pip3 install flask --break-system-packages >> "$LOG_FILE" 2>&1 \
   || warn "Flask pip fehlgeschlagen"
 
 # ── 2. App-Dateien ────────────────────────────────────────────────
-log "Kopiere App nach ${APP_DIR}..."
-mkdir -p "$APP_DIR" "$SOUNDS_DIR"
-cp -r "$APP_SRC"/. "$APP_DIR/"
+log "App-Verzeichnis: ${APP_DIR}"
+mkdir -p "$SOUNDS_DIR"
 chmod +x "${APP_DIR}/app.py" 2>/dev/null || true
 
 # Board-Info
