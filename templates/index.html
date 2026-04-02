@@ -379,6 +379,20 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
           <div class="ds-tile-val green">erkannt</div>
         </div>
       </div>
+      <div class="ds-tile">
+        <div class="ds-tile-icon">🔁</div>
+        <div>
+          <div class="ds-tile-label">Loopback</div>
+          <div class="ds-tile-val" id="ds-loopback-tile">–</div>
+        </div>
+      </div>
+      <div class="ds-tile">
+        <div class="ds-tile-icon">🔊</div>
+        <div>
+          <div class="ds-tile-label">PulseAudio</div>
+          <div class="ds-tile-val" id="ds-pulse-tile">–</div>
+        </div>
+      </div>
     </div>
 
     <!-- Lautstärke-Karte -->
@@ -388,18 +402,19 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-family:var(--mono);font-size:11px;color:var(--t2);min-width:72px">🔊 Ausgang</span>
           <input type="range" id="ds-vol-out" min="0" max="100" value="80" style="flex:1"
-                 oninput="document.getElementById('ds-vol-out-val').textContent=this.value+'%'">
-          <span id="ds-vol-out-val" style="font-family:var(--mono);font-size:11px;min-width:36px;color:var(--t2)">80%</span>
+                 oninput="document.getElementById('ds-vol-out-val').textContent=this.value+'%'"
+                 onchange="dsSaveVolume()">
+          <span id="ds-vol-out-val" style="font-family:var(--mono);font-size:13px;font-weight:700;min-width:36px;color:var(--t1)">80%</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-family:var(--mono);font-size:11px;color:var(--t2);min-width:72px">🎙 Eingang</span>
           <input type="range" id="ds-vol-in" min="0" max="100" value="80" style="flex:1"
-                 oninput="document.getElementById('ds-vol-in-val').textContent=this.value+'%'">
-          <span id="ds-vol-in-val" style="font-family:var(--mono);font-size:11px;min-width:36px;color:var(--t2)">80%</span>
+                 oninput="document.getElementById('ds-vol-in-val').textContent=this.value+'%'"
+                 onchange="dsSaveVolume()">
+          <span id="ds-vol-in-val" style="font-family:var(--mono);font-size:13px;font-weight:700;min-width:36px;color:var(--t1)">80%</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;justify-content:flex-end">
           <div class="spill" id="ds-vol-status" style="margin:0;flex:1"></div>
-          <button class="btn btn-green btn-sm" onclick="dsSaveVolume()">✓ Anwenden</button>
         </div>
       </div>
     </div>
@@ -445,6 +460,12 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <div class="ds-tile"><div class="ds-tile-icon">💾</div><div><div class="ds-tile-label">RAM</div><div class="ds-tile-val" id="ds-ram">–</div></div></div>
         <div class="ds-tile"><div class="ds-tile-icon">💿</div><div><div class="ds-tile-label">Disk</div><div class="ds-tile-val" id="ds-disk">–</div></div></div>
         <div class="ds-tile"><div class="ds-tile-icon">⏱</div><div><div class="ds-tile-label">Uptime</div><div class="ds-tile-val" id="ds-uptime" style="font-size:11px">–</div></div></div>
+        <div class="ds-tile"><div class="ds-tile-icon">🔊</div><div><div class="ds-tile-label">PulseAudio</div><div class="ds-tile-val" id="ds-health-pulse">–</div></div></div>
+        <div class="ds-tile"><div class="ds-tile-icon">📌</div><div><div class="ds-tile-label">GPIO-Daemon</div><div class="ds-tile-val" id="ds-health-gpio">–</div></div></div>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <button class="btn btn-ghost btn-sm" onclick="usbImport()" id="ds-usb-btn">📥 USB-Stick importieren</button>
+        <div class="spill" id="ds-usb-status" style="margin:0;flex:1"></div>
       </div>
     </div>
 
@@ -1295,8 +1316,29 @@ async function loadHealth() {
   tempEl.textContent = h.cpu_temp + ' °C';
   tempEl.className = 'ds-tile-val ' + (t > 70 ? 'red' : t > 55 ? 'warn' : 'green');
   document.getElementById('ds-ram').textContent = `${h.ram_used}/${h.ram_total} MB`;
-  document.getElementById('ds-disk').textContent = `${h.disk_pct} belegt`;
+  const diskEl = document.getElementById('ds-disk');
+  diskEl.textContent = `${h.disk_pct} belegt`;
+  diskEl.className = 'ds-tile-val ' + (h.disk_warn ? 'red' : 'green');
   document.getElementById('ds-uptime').textContent = h.uptime;
+  const pulseEl = document.getElementById('ds-health-pulse');
+  pulseEl.textContent = h.pulse_ok ? 'aktiv' : 'inaktiv';
+  pulseEl.className = 'ds-tile-val ' + (h.pulse_ok ? 'green' : 'red');
+  const gpioEl = document.getElementById('ds-health-gpio');
+  gpioEl.textContent = h.gpio_service ? 'aktiv' : 'inaktiv';
+  gpioEl.className = 'ds-tile-val ' + (h.gpio_service ? 'green' : 'red');
+  // Loopback + Pulse auch in Status-Kacheln oben aktualisieren
+  const lbTile = document.getElementById('ds-loopback-tile');
+  if (lbTile) { lbTile.textContent = h.loopback ? 'aktiv' : 'inaktiv'; lbTile.className = 'ds-tile-val ' + (h.loopback ? 'green' : 'red'); }
+  const pTile = document.getElementById('ds-pulse-tile');
+  if (pTile) { pTile.textContent = h.pulse_ok ? 'aktiv' : 'inaktiv'; pTile.className = 'ds-tile-val ' + (h.pulse_ok ? 'green' : 'red'); }
+}
+async function usbImport() {
+  const btn = document.getElementById('ds-usb-btn');
+  btn.disabled = true; btn.textContent = '⏳ Importiere…';
+  const r = await api('POST', '/api/usb/import');
+  btn.disabled = false; btn.textContent = '📥 USB-Stick importieren';
+  pill('ds-usb-status', r.msg || (r.ok ? '✓ Fertig' : '✗ Fehler'), r.ok ? 'ok' : 'err');
+  if (r.ok && r.imported > 0) { mp3List = await api('GET','/api/mp3s'); renderSoundTable(mp3List, document.getElementById('ds-static-ip')?.textContent||''); }
 }
 
 // ── Schedules ────────────────────────────────────────────────────────────────

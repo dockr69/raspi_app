@@ -471,7 +471,19 @@ systemctl daemon-reload >> "$LOG_FILE" 2>&1
 systemctl enable "$GPIO_SVC" >> "$LOG_FILE" 2>&1 || true
 ok "GPIO-Service bereit"
 
-# ── 10. Alte Kiosk-Dienste entfernen (falls vorhanden) ───────────
+# ── 10. USB Auto-Import (udev-Regel) ────────────────────────────
+log "Installiere USB Auto-Import udev-Regel..."
+chmod +x "${APP_DIR}/usb-import.sh" 2>/dev/null || true
+cat > "/etc/udev/rules.d/99-raspi-audio-usb.rules" <<UDEVEOF
+# Raspi Audio Konfigurator: MP3s von USB-Stick automatisch importieren
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_USB_DRIVER}=="usb-storage", \\
+  ENV{DEVTYPE}=="partition", \\
+  RUN+="/bin/bash -c 'sleep 5 && ${APP_DIR}/usb-import.sh &'"
+UDEVEOF
+udevadm control --reload-rules >> "$LOG_FILE" 2>&1 || true
+ok "USB Auto-Import aktiv"
+
+# ── 11. Alte Kiosk-Dienste entfernen (falls vorhanden) ───────────
 for svc in raspi-kiosk; do
   if systemctl is-enabled "$svc" 2>/dev/null | grep -q enabled; then
     systemctl disable "$svc" >> "$LOG_FILE" 2>&1 || true

@@ -860,6 +860,66 @@ def api_audio_save():
         reload_loopback()
     return jsonify({"ok": True})
 
+@app.route('/api/usb/import', methods=['POST'])
+def api_usb_import():
+    """Scannt gemountete USB-Sticks nach MP3s und importiert sie."""
+    imported, skipped = [], []
+    mount_dirs = []
+    # Alle gemounteten USB-Massenspeicher finden
+    mounts = run("lsblk -o MOUNTPOINT,TRAN -J 2>/dev/null")
+    try:
+        import json as _json
+        devs = _json.loads(mounts["out"]).get("blockdevices", [])
+        def _collect(devs):
+            for d in devs:
+                if d.get("tran") == "usb" and d.get("mountpoint"):
+                    mount_dirs.append(d["mountpoint"])
+                for child in d.get("children") or []:
+                    _collect([child])
+        _collect(devs)
+    except Exception:
+        pass
+    # Fallback: /media und /mnt durchsuchen
+    if not mount_dirs:
+        for base in ("/media", "/mnt"):
+            if os.path.isdir(base):
+                for entry in os.listdir(base):
+                    p = os.path.join(base, entry)
+                    if os.path.ismount(p):
+                        mount_dirs.append(p)
+    if not mount_dirs:
+        return jsonify({"ok": False, "msg": "Kein USB-Stick gefunden"}), 404
+    import shutil
+    audio_exts = {'.mp3','.wav','.ogg','.flac','.aac','.m4a','.wma','.opus','.aiff','.aif'}
+    for mdir in mount_dirs:
+        for root, _, files in os.walk(mdir):
+            for fname in files:
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in audio_exts:
+                    continue
+                src_path = os.path.join(root, fname)
+                stem = sanitize(os.path.splitext(fname)[0])
+                if not stem:
+                    skipped.append(fname)
+                    continue
+                dst = os.path.join(MP3_FOLDER, stem + ".mp3")
+                if os.path.exists(dst):
+                    skipped.append(fname)
+                    continue
+                try:
+                    if ext == '.mp3':
+                        shutil.copy2(src_path, dst)
+                    else:
+                        r = run(f"ffmpeg -i {shlex.quote(src_path)} -codec:a libmp3lame -qscale:a 4 -y {shlex.quote(dst)} 2>/dev/null", timeout=120)
+                        if not r["ok"]:
+                            skipped.append(f"{fname} (ffmpeg error)")
+                            continue
+                    imported.append(stem + ".mp3")
+                except Exception as e:
+                    skipped.append(f"{fname} ({e})")
+    return jsonify({"ok": True, "imported": len(imported), "skipped": len(skipped),
+                    "files": imported, "msg": f"{len(imported)} importiert, {len(skipped)} übersprungen"})
+
 def _valid_pa_name(name):
     """PulseAudio-Namen dürfen nur Wort-Zeichen, @, . : + - enthalten."""
     return bool(name) and bool(re.match(r'^[\w@.:+\-]+$', name))
@@ -1316,18 +1376,29 @@ def api_health():
     # Uptime
     uptime = run("uptime -p 2>/dev/null || uptime")["out"]
     # Services
-    web_ok  = "active" in run("systemctl is-active raspi-audio-web 2>/dev/null")["out"]
-    gpio_ok = "active" in run("systemctl is-active raspi-audio-gpio 2>/dev/null")["out"]
+    web_ok   = "active" in run("systemctl is-active raspi-audio-web 2>/dev/null")["out"]
+    gpio_ok  = "active" in run("systemctl is-active raspi-audio-gpio 2>/dev/null")["out"]
+    pulse_ok = run("pactl info 2>/dev/null")["ok"]
+    loopback = _get_loopback_id() is not None
+    # Disk-Warnstufe
+    disk_warn = False
+    try:
+        disk_warn = int(disk_pct.rstrip('%')) >= 85
+    except Exception:
+        pass
     return jsonify({
-        "cpu_temp":   temp,
-        "ram_total":  ram_total,
-        "ram_used":   ram_used,
-        "disk_total": disk_total,
-        "disk_used":  disk_used,
-        "disk_pct":   disk_pct,
-        "uptime":     uptime,
+        "cpu_temp":     temp,
+        "ram_total":    ram_total,
+        "ram_used":     ram_used,
+        "disk_total":   disk_total,
+        "disk_used":    disk_used,
+        "disk_pct":     disk_pct,
+        "disk_warn":    disk_warn,
+        "uptime":       uptime,
         "web_service":  web_ok,
         "gpio_service": gpio_ok,
+        "pulse_ok":     pulse_ok,
+        "loopback":     loopback,
     })
 
 # ── API: Sound Preview (Browser-Streaming) ───────────────────────────────────
