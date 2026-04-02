@@ -263,16 +263,22 @@ iface ${IFACE}:service inet static
     address ${SERVICE_IP}/24
 EOF
 
-# rc.local Fallback (korrekte Labels + Gateway)
+# rc.local – ruft startup-network.sh auf, Fallback bei fehlendem Config
 cat > "/etc/rc.local" <<RCEOF
 #!/bin/bash
-# radxa-audio – Netzwerk-Fallback (falls interfaces.d nicht greift)
-IFACE=\$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo | head -1)
-[ -z "\$IFACE" ] && IFACE=eth0
-ip addr add ${STATIC_IP}/24 dev "\$IFACE" 2>/dev/null || true
-ip addr add ${SERVICE_IP}/24 dev "\$IFACE" label "\${IFACE}:service" 2>/dev/null || true
-ip route del default 2>/dev/null
-ip route add default via 192.168.1.1 dev "\$IFACE" 2>/dev/null || true
+CFG="/etc/radxa_audio/config.json"
+if [ -f "\$CFG" ] && command -v python3 &>/dev/null; then
+    /opt/radxa_audio/startup-network.sh 2>/dev/null || true
+else
+    # Hardcoded Fallback nur wenn Config/Python nicht verfügbar
+    IFACE=\$(ip -o link show | awk -F': ' '{print \$2}' | grep -v lo | head -1)
+    [ -z "\$IFACE" ] && IFACE=eth0
+    ip addr add ${STATIC_IP}/24 dev "\$IFACE" 2>/dev/null || true
+    ip addr add ${SERVICE_IP}/24 dev "\$IFACE" label "\${IFACE}:service" 2>/dev/null || true
+    ip route del default 2>/dev/null
+    ip route add default via 192.168.1.1 dev "\$IFACE" 2>/dev/null || true
+    echo "nameserver 8.8.8.8" > /etc/resolv.conf
+fi
 exit 0
 RCEOF
 chmod +x "/etc/rc.local"
