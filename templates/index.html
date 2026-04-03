@@ -1209,6 +1209,11 @@ async function loadSettingsData() {
   document.getElementById('s-net-mask').value = n.mask || '255.255.255.0';
   document.getElementById('s-net-gw').value = n.gateway || '192.168.1.1';
   document.getElementById('s-net-dns').value = n.dns || '8.8.8.8';
+  // AP Mode
+  const ap = st.ap_mode || {};
+  document.getElementById('s-net-ap-mode').value = ap.enabled ? 'enabled' : 'disabled';
+  document.getElementById('s-net-ap-ssid').value = ap.ssid || '';
+  document.getElementById('s-net-ap-password').value = ap.password || '';
   // Audio
   const volOut = a.volume ?? 100;
   const volIn  = a.input_volume ?? 100;
