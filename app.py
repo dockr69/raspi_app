@@ -1520,7 +1520,10 @@ def api_update_status():
     current_date = parts[2][:10] if len(parts) > 2 else "?"
 
        # Fetch remote updates
-    fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main", timeout=5)
+    fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main 2>&1", timeout=5)
+    sys.stderr.write(f"[UPDATE] fetch ok={fetch_result["ok"]} out={fetch_result["out"]!r} err={fetch_result["err"]!r}
+")
+    sys.stderr.flush()
     if not fetch_result["ok"]:
         return jsonify({
               "hash": current_hash,
