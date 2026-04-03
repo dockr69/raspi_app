@@ -420,34 +420,48 @@ def ensure_service_ip(iface=None):
 
 _EXCLUDE_CARDS = ("alsa_output.platform-", "alsa_input.platform-", "alsa_output.bcm", "alsa_input.bcm")
 
-def detect_sources():
-    """Detect PulseAudio sources with robust error handling."""
-    out = run("pactl list sources short 2>/dev/null")["out"]
-    sources = [l.split()[1] for l in out.splitlines()
+_audio_cache = {"sources": None, "sinks": None, "ts": 0.0}
+_AUDIO_CACHE_TTL = 30.0  # Sekunden
+
+def _audio_cache_valid():
+    return (time.time() - _audio_cache["ts"]) < _AUDIO_CACHE_TTL
+
+def _refresh_audio_cache():
+    sources_out = run("pactl list sources short 2>/dev/null")["out"]
+    sinks_out   = run("pactl list sinks short 2>/dev/null")["out"]
+
+    sources = [l.split()[1] for l in sources_out.splitlines()
                if len(l.split()) >= 2
                and "monitor" not in l.split()[1].lower()
                and not l.split()[1].startswith(_EXCLUDE_CARDS)]
-    # Filter out HDMI/invalid sources
     sources = [s for s in sources if "hdmi" not in s.lower() and "vc4" not in s.lower()]
-     # Prefer USB audio (card 1) over internal (card 0)
     usb_sources = [s for s in sources if ".1." in s or "usb" in s.lower()]
     if usb_sources:
-        return usb_sources + [s for s in sources if s not in usb_sources]
-    return sources or ["@DEFAULT_SOURCE@"]
+        sources = usb_sources + [s for s in sources if s not in usb_sources]
+    _audio_cache["sources"] = sources or ["@DEFAULT_SOURCE@"]
 
-def _detect_sinks():
-    """Detect PulseAudio sinks with robust error handling."""
-    out = run("pactl list sinks short 2>/dev/null")["out"]
-    sinks = [l.split()[1] for l in out.splitlines()
+    sinks = [l.split()[1] for l in sinks_out.splitlines()
              if len(l.split()) >= 2
              and not l.split()[1].startswith(_EXCLUDE_CARDS)]
-    # Filter out HDMI/invalid sinks
     sinks = [s for s in sinks if "hdmi" not in s.lower() and "vc4" not in s.lower()]
-    # Prefer USB audio (card 1) over internal (card 0)
     usb_sinks = [s for s in sinks if ".1." in s or "usb" in s.lower()]
     if usb_sinks:
-        return usb_sinks + [s for s in sinks if s not in usb_sinks]
-    return sinks or ["@DEFAULT_SINK@"]
+        sinks = usb_sinks + [s for s in sinks if s not in usb_sinks]
+    _audio_cache["sinks"] = sinks or ["@DEFAULT_SINK@"]
+
+    _audio_cache["ts"] = time.time()
+
+def detect_sources():
+    """Detect PulseAudio sources with caching."""
+    if not _audio_cache_valid():
+        _refresh_audio_cache()
+    return _audio_cache["sources"]
+
+def _detect_sinks():
+    """Detect PulseAudio sinks with caching."""
+    if not _audio_cache_valid():
+        _refresh_audio_cache()
+    return _audio_cache["sinks"]
 
 def list_mp3s():
     cfg = load_cfg()

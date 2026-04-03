@@ -1106,9 +1106,8 @@ async function loadSettingsData() {
   // Dropdowns laden
   await sLoadIfaces();
   if(n.interface) document.getElementById('s-net-iface').value = n.interface;
-  await sDetectSources();
+  await Promise.all([sDetectSources(), sDetectSinks()]);
   if(a.source) document.getElementById('s-audio-src').value = a.source;
-  await sDetectSinks();
   if(a.sink) document.getElementById('s-audio-sink').value = a.sink;
   sNetInput();
 }
