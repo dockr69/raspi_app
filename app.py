@@ -1513,23 +1513,34 @@ _GIT = "/usr/bin/git"
 @app.route('/api/update/status')
 def api_update_status():
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    commit  = run(f"{_GIT} -C {shlex.quote(app_dir)} log -1 --format=%h|%s|%ci")["out"].strip()
-    parts   = commit.split("|", 2)
+    commit     = run(f"{_GIT} -C {shlex.quote(app_dir)} log -1 --format=%h|%s|%ci")["out"].strip()
+    parts      = commit.split("|", 2)
     current_hash = parts[0] if len(parts) > 0 else "?"
-    current_msg  = parts[1] if len(parts) > 1 else "?"
+    current_msg    = parts[1] if len(parts) > 1 else "?"
     current_date = parts[2][:10] if len(parts) > 2 else "?"
-    run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main 2>/dev/null", timeout=15)
+
+       # Fetch remote updates
+    fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main", timeout=15)
+    if not fetch_result["ok"]:
+        return jsonify({
+              "hash": current_hash,
+              "message": current_msg,
+              "date": current_date,
+              "behind": 0,
+              "error": "Netzwerkfehler – kein Zugriff auf GitHub"
+          })
+
     behind = run(f"{_GIT} -C {shlex.quote(app_dir)} rev-list HEAD..origin/main --count")["out"].strip()
     try:
         behind_count = int(behind)
     except ValueError:
-        behind_count = -1
+        behind_count = 0
     return jsonify({
-        "hash":    current_hash,
-        "message": current_msg,
-        "date":    current_date,
-        "behind":  behind_count,
-    })
+          "hash": current_hash,
+          "message": current_msg,
+          "date": current_date,
+          "behind": behind_count
+      })
 
 @app.route('/api/update/pull', methods=['POST'])
 def api_update_pull():

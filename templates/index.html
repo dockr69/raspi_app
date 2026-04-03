@@ -1123,7 +1123,7 @@ async function updLoadVersion() {
   document.getElementById('upd-hash').textContent = r.hash || '?';
   document.getElementById('upd-date').textContent = r.date || '?';
   document.getElementById('upd-msg').textContent  = r.message || '?';
-  updShowBehind(r.behind);
+  updShowBehind(r.behind, r.error);
 }
 async function updCheck() {
   document.getElementById('upd-status').textContent = 'Prüfe...';
@@ -1133,14 +1133,17 @@ async function updCheck() {
   document.getElementById('upd-hash').textContent = r.hash || '?';
   document.getElementById('upd-date').textContent = r.date || '?';
   document.getElementById('upd-msg').textContent  = r.message || '?';
-  updShowBehind(r.behind);
+  updShowBehind(r.behind, r.error);
 }
-function updShowBehind(behind) {
+function updShowBehind(behind, error) {
   const el  = document.getElementById('upd-status');
   const btn = document.getElementById('upd-btn');
-  if(behind === 0) {
+  if(behind === 0 && !error) {
     el.innerHTML = '<span style="color:var(--green)">✓ Aktuell – kein Update verfügbar.</span>';
     btn.disabled = true;
+    } else if (error) {
+      el.innerHTML = `<span style="color:var(--warn)">⚠ ${error}</span>`;
+      btn.disabled = true;
   } else if(behind > 0) {
     el.innerHTML = `<span style="color:var(--warn)">⬆ ${behind} neuer Commit${behind>1?'s':''} verfügbar.</span>`;
     btn.disabled = false;
