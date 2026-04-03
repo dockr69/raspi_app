@@ -1578,43 +1578,63 @@ def api_update_pull():
     return jsonify({"ok": True, "msg": r["out"].strip()})
 
 # ── API: Backup / Restore ───────────────────────────────────────────────────
-@app.route('/api/backup/export')
-def api_backup_export():
-    """Exportiert Config + alle MP3s als ZIP."""
+# ── API: Backup / Restore ───────────────────────────────────────────────────
+def _backup_export_zip():
+      """Exportiert Config + Board + Texte + Sounds als ZIP. Returns BytesIO."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # Config
+          # Config
         if os.path.isfile(CONFIG_FILE):
             zf.write(CONFIG_FILE, "config.json")
-        # Sounds
+         # Board Config
+        if os.path.isfile(BOARD_FILE):
+            zf.write(BOARD_FILE, "board.json")
+         # Text-Dateien
+        cfg_dir = os.path.dirname(CONFIG_FILE)
+        if os.path.isdir(cfg_dir):
+            for fn in os.listdir(cfg_dir):
+                fp = os.path.join(cfg_dir, fn)
+                if os.path.isfile(fp) and fn.endswith('.txt'):
+                    zf.write(fp, f"texts/{fn}")
+         # Sounds
         for f in os.listdir(MP3_FOLDER):
             fp = os.path.join(MP3_FOLDER, f)
             if os.path.isfile(fp):
                 zf.write(fp, f"sounds/{f}")
     buf.seek(0)
-    return send_file(buf, mimetype='application/zip',
-                     as_attachment=True, download_name='radxa_backup.zip')
+    return buf
 
-@app.route('/api/backup/import', methods=['POST'])
-def api_backup_import():
-    """Importiert Config + Sounds aus ZIP."""
-    if 'file' not in request.files:
-        return jsonify({"ok": False, "msg": "Keine Datei"}), 400
-    f = request.files['file']
+def _backup_import_zip(zip_file):
+      """Importiert Config, Board, Texts, Sounds aus ZIP. Returns (ok, msg, texts_count, sounds_count)."""
     try:
-        MAX_ENTRY_SIZE = 200 * 1024 * 1024  # 200 MB pro Datei
-        with zipfile.ZipFile(f.stream, 'r') as zf:
-            # ZIP-Bomb-Schutz: unkomprimierte Gesamtgroesse pruefen
+        MAX_ENTRY_SIZE = 200 * 1024 * 1024    # 200 MB pro Datei
+        with zipfile.ZipFile(zip_file.stream, 'r') as zf:
+               # ZIP-Bomb-Schutz
             total_size = sum(i.file_size for i in zf.infolist())
-            if total_size > 2 * 1024 * 1024 * 1024:  # 2 GB
-                return jsonify({"ok": False, "msg": "ZIP zu gross (max 2 GB unkomprimiert)"}), 400
+            if total_size > 2 * 1024 * 1024 * 1024:    # 2 GB
+                return False, "ZIP zu gross (max 2 GB unkomprimiert)", 0, 0
             names = zf.namelist()
-            # Config importieren
+            texts_imported = 0
+            sounds_imported = 0
+               # Config importieren
             if "config.json" in names:
                 cfg_data = json.loads(zf.read("config.json"))
                 save_cfg(cfg_data)
-            # Sounds importieren
-            imported = 0
+               # Board Config importieren
+            if "board.json" in names:
+                board_data = json.loads(zf.read("board.json"))
+                save_cfg(board_data)
+               # Text-Dateien importieren
+            cfg_dir = os.path.dirname(CONFIG_FILE)
+            for name in names:
+                if name.startswith("texts/") and name.endswith('.txt'):
+                    basename = os.path.basename(name)
+                    if basename:
+                        target = os.path.join(cfg_dir, basename)
+                        with open(target, "wb") as out:
+                            out.write(zf.read(name))
+                        texts_imported += 1
+               # Sounds importieren
             for name in names:
                 if name.startswith("sounds/") and name.endswith(".mp3"):
                     info = zf.getinfo(name)
@@ -1625,145 +1645,23 @@ def api_backup_import():
                         target = os.path.join(MP3_FOLDER, basename)
                         with open(target, "wb") as out:
                             out.write(zf.read(name))
-                        imported += 1
-        return jsonify({"ok": True, "msg": f"Config + {imported} Sounds importiert"})
+                        sounds_imported += 1
+        return True, f"Config + {texts_imported} Texte + {sounds_imported} Sounds importiert", texts_imported, sounds_imported
     except Exception as e:
-        return jsonify({"ok": False, "msg": f"Import fehlgeschlagen: {e}"}), 400
+        return False, f"Import fehlgeschlagen: {e}", 0, 0
 
-# ── API: Scheduled Triggers ─────────────────────────────────────────────────
-# Verwende APScheduler statt threading.Timer fuer robuste 24/7-Schedules
-_sched_lock = threading.Lock()
-_sched_jobstore = {}  # {sched_id: next_run_time}
+@app.route('/api/backup/export')
+def api_backup_export():
+      """Exportiert Config + Board + Texte + Sounds als ZIP."""
+    return send_file(_backup_export_zip(), mimetype='application/zip',
+                     as_attachment=True, download_name='radxa_backup.zip')
 
-def _load_schedules():
-    return load_cfg().get("schedules", [])
-
-def _run_scheduled(sched_id):
-    """Fuehrt geplanten Trigger aus."""
-    schedules = _load_schedules()
-    for s in schedules:
-        if s.get("id") == sched_id and s.get("enabled", True):
-            print(f"[SCHEDULE] Triggering: {s['sound']} (id={sched_id})", flush=True)
-            trigger_play(s["sound"])
-            break
-
-def _schedule_all():
-    """Initialisiert alle Schedules beim Start."""
-    schedules = _load_schedules()
-    with _sched_lock:
-        _sched_jobstore.clear()
-        for s in schedules:
-            if s.get("enabled", True) and s.get("id"):
-                _sched_jobstore[s["id"]] = None
-    print(f"[SCHEDULE] Loaded {len(schedules)} schedules", flush=True)
-
-def _get_cron_delay(time_s, days):
-    """Berechnet Sekunden bis zum naechsten Termin."""
-    import datetime
-    try:
-        parts = time_s.split(":")
-        h, m = int(parts[0]), int(parts[1])
-        if not (0 <= h <= 23 and 0 <= m <= 59):
-            raise ValueError(f"Ungueltige Zeit: {time_s}")
-    except (ValueError, IndexError) as e:
-        print(f"[SCHEDULE] Ungueltige Zeit '{time_s}': {e}", flush=True)
-        return 86400, datetime.datetime.now() + datetime.timedelta(days=1)
-    now = datetime.datetime.now()
-    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
-    if target <= now:
-        target += datetime.timedelta(days=1)
-    while target.weekday() not in (days or [0,1,2,3,4,5,6]):
-        target += datetime.timedelta(days=1)
-    return (target - now).total_seconds(), target
-
-# Hintergrund-Thread fuer Schedules (robuster als threading.Timer)
-def _schedule_runner():
-    """Laueft im Hintergrund und fuehrt Schedules aus."""
-    import datetime
-    while True:
-        try:
-            time.sleep(30)  # Alle 30s pruefen
-            now = datetime.datetime.now()
-            schedules = _load_schedules()
-            for s in schedules:
-                if not s.get("enabled", True) or not s.get("id"):
-                    continue
-                sched_id = s["id"]
-                time_s = s.get("time", "")
-                days = s.get("days", [0,1,2,3,4,5,6])
-                if not time_s or not s.get("sound"):
-                    continue
-                delay, target = _get_cron_delay(time_s, days)
-                # Wenn Zielzeit erreicht (Toleranz 60s)
-                if delay < 60:
-                    with _sched_lock:
-                        last_run = _sched_jobstore.get(sched_id)
-                        if last_run and abs((target - last_run).total_seconds()) < 120:
-                            continue
-                        _sched_jobstore[sched_id] = target
-                    print(f"[SCHEDULE] Running: {s['sound']} at {target}", flush=True)
-                    _run_scheduled(sched_id)
-        except Exception as e:
-            print(f"[SCHEDULE] Runner-Fehler (wird fortgesetzt): {e}", flush=True)
-
-# Schedule-Runner als Daemon-Thread starten
-_schedule_thread = threading.Thread(target=_schedule_runner, daemon=True)
-_schedule_thread.start()
-
-@app.route('/api/schedules', methods=['GET', 'POST'])
-def api_schedules():
-    if request.method == 'GET':
-        return jsonify(_load_schedules())
-    d = request.json or {}
-    sound   = d.get("sound", "")
-    time_s  = d.get("time", "")
-    days    = d.get("days", [0,1,2,3,4,5,6])
-    enabled = d.get("enabled", True)
-    if not sound or not re.match(r'^\d{1,2}:\d{2}$', time_s):
-        return jsonify({"ok": False, "msg": "Sound und Zeit (HH:MM) erforderlich"}), 400
-    cfg = load_cfg()
-    schedules = cfg.get("schedules", [])
-    sid = d.get("id") or secrets.token_hex(4)
-    # Update oder neu
-    found = False
-    for s in schedules:
-        if s["id"] == sid:
-            s.update({"sound": sound, "time": time_s, "days": days, "enabled": enabled})
-            found = True
-            break
-    if not found:
-        schedules.append({"id": sid, "sound": sound, "time": time_s, "days": days, "enabled": enabled})
-    cfg["schedules"] = schedules
-    save_cfg(cfg)
-    return jsonify({"ok": True, "id": sid})
-
-@app.route('/api/schedules/delete', methods=['POST'])
-def api_schedules_delete():
-    sid = (request.json or {}).get("id", "")
-    cfg = load_cfg()
-    cfg["schedules"] = [s for s in cfg.get("schedules", []) if s.get("id") != sid]
-    save_cfg(cfg)
-    with _sched_lock:
-        _sched_jobstore.pop(sid, None)
-    return jsonify({"ok": True})
-
-# Schedules beim Start laden
-_schedule_all()
-
-# ── Tmp-Cleanup beim Start ──────────────────────────────────────────────────
-for _tmp in globmod.glob("/tmp/_radxa_*"):
-    try:
-        os.remove(_tmp)
-    except Exception:
-        pass
-
-# ── Frontend ──────────────────────────────────────────────────────────────────
-@app.route('/')
-def index():
-    cfg = load_cfg()
-    return render_template('index.html',
-                           service_ip=SERVICE_IP,
-                           mode=cfg.get("mode", "online"))
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
+@app.route('/api/backup/import', methods=['POST'])
+def api_backup_import():
+      """Importiert Config + Board + Texte + Sounds aus ZIP."""
+    if 'file' not in request.files:
+        return jsonify({"ok": False, "msg": "Keine Datei"}), 400
+    ok, msg, texts, sounds = _backup_import_zip(request.files['file'])
+    if ok:
+        return jsonify({"ok": True, "msg": msg, "texts": texts, "sounds": sounds})
+    return jsonify({"ok": False, "msg": msg}), 400
