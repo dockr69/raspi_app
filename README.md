@@ -76,3 +76,9 @@ Unterstützte Upload-Formate: MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, MP4, AIF
 
 Standard-Login: Benutzername `pi`, Passwort = OS-Passwort des Pi-Users.
 Passwort kann in der Web-UI unter dem Schloss-Symbol geändert werden.
+
+## Software-Update
+
+Klicke auf \"Update\" im Update-Tab. Der Service wird automatisch neu gestartet.
+
+Hinweis: Bei Netzwerkproblemen wird der aktuelle Commit angezeigt.
