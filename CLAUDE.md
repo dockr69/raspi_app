@@ -94,6 +94,12 @@ sudo systemctl restart raspi-audio-web
 - For complex changes: create in temp file, test syntax, then insert
 - Backup functions: `_backup_export_zip()` and `_backup_import_zip()`
 
+## SSH Access
+
+```bash
+sshpass -p 'Synthese734#' ssh pi@192.168.1.120
+```
+
 ## GitHub
 
 `dockr69/raspi_app` – main branch

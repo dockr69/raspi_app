@@ -1,0 +1,1 @@
+- [Pi SSH credentials](pi_ssh.md) - SSH access to Raspberry Pi (pi@192.168.1.120)
