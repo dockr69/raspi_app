@@ -1521,8 +1521,7 @@ def api_update_status():
 
        # Fetch remote updates
     fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main 2>&1", timeout=5)
-    sys.stderr.write(f"[UPDATE] fetch ok={fetch_result["ok"]} out={fetch_result["out"]!r} err={fetch_result["err"]!r}
-")
+    sys.stderr.write(f"[UPDATE] fetch ok={fetch_result['ok']} out={fetch_result['out']!r} err={fetch_result['err']!r}\n")
     sys.stderr.flush()
     if not fetch_result["ok"]:
         return jsonify({
