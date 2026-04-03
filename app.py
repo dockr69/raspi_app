@@ -201,6 +201,7 @@ def _ensure_default_config():
 
 _cfg_lock = threading.Lock()
 _secret_lock = threading.Lock()
+_play_lock = threading.Lock()
 
 # ── Secret Key (persistent, damit Sessions nach Neustart gültig bleiben) ──────
 def _load_secret_key():
