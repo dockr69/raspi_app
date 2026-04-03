@@ -525,6 +525,7 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div style="display:flex;gap:0">
         <button class="ds-tab active" id="s-tab-network" onclick="settingsTab('network')">🌐 Netzwerk</button>
         <button class="ds-tab" id="s-tab-audio" onclick="settingsTab('audio')">🎚 Audio</button>
+        <button class="ds-tab" id="s-tab-update" onclick="settingsTab('update')">🔄 Update</button>
       </div>
     </div>
 
@@ -632,6 +633,41 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
       <div class="card" style="padding:14px 18px;font-size:13px;color:var(--t2)">
         Line-In → Line-Out läuft <b style="color:var(--text)">permanent</b>.
         Beim Trigger: Line-In kurz stumm → Ton → Line-In wieder aktiv.
+      </div>
+    </div>
+
+    <!-- ── Tab: Update ── -->
+    <div id="s-pane-update" style="display:none">
+      <div class="card">
+        <div class="card-title">🔄 Software-Update</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:18px;padding:12px 14px;background:var(--s3);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:12px">
+            <div>
+              <div style="color:var(--t3);margin-bottom:3px">Version</div>
+              <div id="upd-hash" style="color:var(--acc);font-weight:700">–</div>
+            </div>
+            <div>
+              <div style="color:var(--t3);margin-bottom:3px">Datum</div>
+              <div id="upd-date" style="color:var(--text)">–</div>
+            </div>
+            <div style="flex:1">
+              <div style="color:var(--t3);margin-bottom:3px">Commit</div>
+              <div id="upd-msg" style="color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">–</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="upd-status" style="font-size:13px;color:var(--t2)">Klicke "Prüfen" um nach Updates zu suchen.</span>
+            <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="updCheck()">🔍 Prüfen</button>
+          </div>
+        </div>
+        <div class="brow" style="margin-top:8px">
+          <button class="btn btn-primary" id="upd-btn" onclick="updInstall()" disabled>⬇ Update installieren</button>
+        </div>
+        <div class="spill" id="upd-log" style="display:none;margin-top:10px;font-family:var(--mono);font-size:11px;white-space:pre-wrap"></div>
+      </div>
+      <div class="card" style="padding:14px 18px;font-size:13px;color:var(--t2)">
+        Lädt den aktuellen Stand von <b style="color:var(--text)">GitHub (main)</b> und startet den Service neu.<br>
+        Der Pi ist danach ca. <b style="color:var(--text)">5 Sekunden</b> nicht erreichbar.
       </div>
     </div>
 
@@ -1072,12 +1108,65 @@ function closeSettings() {
   loadDashboard();
 }
 function settingsTab(tab) {
-  ['network','audio'].forEach(t => {
+  ['network','audio','update'].forEach(t => {
     const pane = document.getElementById(`s-pane-${t}`);
     const btn  = document.getElementById(`s-tab-${t}`);
     if(pane) pane.style.display = t===tab ? 'block' : 'none';
     if(btn)  btn.className = 'ds-tab' + (t===tab ? ' active' : '');
   });
+  if(tab === 'update') updLoadVersion();
+}
+
+async function updLoadVersion() {
+  const r = await api('GET', '/api/update/status');
+  if(!r) return;
+  document.getElementById('upd-hash').textContent = r.hash || '?';
+  document.getElementById('upd-date').textContent = r.date || '?';
+  document.getElementById('upd-msg').textContent  = r.message || '?';
+  updShowBehind(r.behind);
+}
+async function updCheck() {
+  document.getElementById('upd-status').textContent = 'Prüfe...';
+  document.getElementById('upd-btn').disabled = true;
+  const r = await api('GET', '/api/update/status');
+  if(!r) { document.getElementById('upd-status').textContent = 'Fehler beim Prüfen.'; return; }
+  document.getElementById('upd-hash').textContent = r.hash || '?';
+  document.getElementById('upd-date').textContent = r.date || '?';
+  document.getElementById('upd-msg').textContent  = r.message || '?';
+  updShowBehind(r.behind);
+}
+function updShowBehind(behind) {
+  const el  = document.getElementById('upd-status');
+  const btn = document.getElementById('upd-btn');
+  if(behind === 0) {
+    el.innerHTML = '<span style="color:var(--green)">✓ Aktuell – kein Update verfügbar.</span>';
+    btn.disabled = true;
+  } else if(behind > 0) {
+    el.innerHTML = `<span style="color:var(--warn)">⬆ ${behind} neuer Commit${behind>1?'s':''} verfügbar.</span>`;
+    btn.disabled = false;
+  } else {
+    el.textContent = 'Status unbekannt.';
+    btn.disabled = true;
+  }
+}
+async function updInstall() {
+  if(!confirm('Update installieren? Der Service wird danach neu gestartet (~5 Sek. offline).')) return;
+  const btn = document.getElementById('upd-btn');
+  const log = document.getElementById('upd-log');
+  btn.disabled = true;
+  document.getElementById('upd-status').textContent = 'Update wird installiert...';
+  log.style.display = 'block';
+  log.textContent = 'git pull origin main ...\n';
+  const r = await api('POST', '/api/update/pull');
+  if(r && r.ok) {
+    log.textContent += r.msg + '\n\nService wird neu gestartet...';
+    document.getElementById('upd-status').innerHTML = '<span style="color:var(--green)">✓ Update installiert. Seite lädt neu...</span>';
+    setTimeout(() => location.reload(), 6000);
+  } else {
+    log.textContent += (r && r.msg) || 'Unbekannter Fehler';
+    document.getElementById('upd-status').innerHTML = '<span style="color:var(--err)">Fehler beim Update.</span>';
+    btn.disabled = false;
+  }
 }
 async function loadSettingsData() {
   const st = await api('GET','/api/status');

@@ -1507,6 +1507,40 @@ def api_reboot():
                      daemon=True).start()
     return jsonify({"ok": True, "msg": "Neustart in 1 Sekunde..."})
 
+# ── API: Update (git pull) ──────────────────────────────────────────────────
+@app.route('/api/update/status')
+def api_update_status():
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    commit  = run(f"git -C {shlex.quote(app_dir)} log -1 --format='%h|%s|%ci'")["out"].strip().strip("'")
+    parts   = commit.split("|", 2)
+    current_hash = parts[0] if len(parts) > 0 else "?"
+    current_msg  = parts[1] if len(parts) > 1 else "?"
+    current_date = parts[2][:10] if len(parts) > 2 else "?"
+    run(f"git -C {shlex.quote(app_dir)} fetch origin main 2>/dev/null")
+    behind = run(f"git -C {shlex.quote(app_dir)} rev-list HEAD..origin/main --count")["out"].strip()
+    try:
+        behind_count = int(behind)
+    except ValueError:
+        behind_count = -1
+    return jsonify({
+        "hash":    current_hash,
+        "message": current_msg,
+        "date":    current_date,
+        "behind":  behind_count,
+    })
+
+@app.route('/api/update/pull', methods=['POST'])
+def api_update_pull():
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    r = run(f"git -C {shlex.quote(app_dir)} pull origin main 2>&1", timeout=60)
+    if not r["ok"]:
+        return jsonify({"ok": False, "msg": r["out"] or r["err"]})
+    threading.Thread(
+        target=lambda: (time.sleep(2), os.system("systemctl restart raspi-audio-web")),
+        daemon=True
+    ).start()
+    return jsonify({"ok": True, "msg": r["out"].strip()})
+
 # ── API: Backup / Restore ───────────────────────────────────────────────────
 @app.route('/api/backup/export')
 def api_backup_export():
