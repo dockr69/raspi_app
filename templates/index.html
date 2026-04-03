@@ -862,12 +862,12 @@ ${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${f.repeat===n?'selected':
 </td>
            <td>
 <select onchange="dsChangeTimeout('${esc(f.stem)}',this.value)" style="font-size:11px;padding:4px 8px;width:70px">
-<option value="0" ${f.timeout===0?'selected':''}>0</option>
-<option value="10" ${f.timeout===10?'selected':''}>10</option>
-<option value="30" ${f.timeout===30?'selected':''}>30</option>
-<option value="60" ${f.timeout===60?'selected':''}>60</option>
-<option value="120" ${f.timeout===120?'selected':''}>120</option>
-<option value="300" ${f.timeout===300?'selected':''}>300</option>
+<option value="0" ${f.timeout==0?'selected':''}>0</option>
+<option value="10" ${f.timeout==10?'selected':''}>10</option>
+<option value="30" ${f.timeout==30?'selected':''}>30</option>
+<option value="60" ${f.timeout==60?'selected':''}>60</option>
+<option value="120" ${f.timeout==120?'selected':''}>120</option>
+<option value="300" ${f.timeout==300?'selected':''}>300</option>
 </select>
 </td>
 <td style="color:var(--t3);font-family:var(--mono);font-size:11px;white-space:nowrap">${f.size_kb} KB</td>
@@ -894,7 +894,8 @@ async function dsChangeTrigger(stem, val) {
   if (val.startsWith('gpio:')) { ttype = 'gpio'; pin = parseInt(val.split(':')[1]); }
   const cur = _dsSounds.find(s=>s.stem===stem);
   const repeat = cur ? cur.repeat : 1;
-  await api('POST','/api/mp3s/trigger',{stem, trigger_type:ttype, gpio_pin:pin, repeat});
+  const timeout = cur ? cur.timeout : 30;
+  await api('POST','/api/mp3s/trigger',{stem, trigger_type:ttype, gpio_pin:pin, repeat, timeout});
   _dsSounds = await api('GET','/api/mp3s');
   const st = document.getElementById('ds-static-ip')?.textContent || '';
   renderSoundTable(_dsSounds, st);

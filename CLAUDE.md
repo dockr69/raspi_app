@@ -73,6 +73,8 @@ SERVICE_IP      = "10.0.0.10"
 - Config-Writes sind atomar (`.tmp` + `os.replace`)
 - Watchdog: 60s – blockierende Calls beim Start killen den Service
 - USB Audio (card 1) wird priorisiert vor internem 3.5mm Jack (card 0)
+- Timeout-Feld in Sounds-Liste: 0s, 10s, 30s (Standard), 60s, 120s, 300s
+- Timeout steuert, wie lange GPIO-Pin nach Trigger blockiert wird
 
 ---
 
