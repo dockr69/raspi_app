@@ -1072,10 +1072,10 @@ def api_mp3_trigger():
         repeat = 1
         print(f"[GPIO] Invalid repeat value for {stem}: {d.get('repeat')}, using default 1", file=sys.stderr)
     try:
-        timeout = max(0, min(300, int(d.get("timeout", 0))))
+        timeout = max(0, min(300, int(d.get("timeout", 30))))
     except (TypeError, ValueError):
-        timeout = 0
-        print(f"[GPIO] Invalid timeout value for {stem}: {d.get('timeout')}, using default 0", file=sys.stderr)
+        timeout = 30
+        print(f"[GPIO] Invalid timeout value for {stem}: {d.get('timeout')}, using default 30", file=sys.stderr)
     cfg["sounds"][stem] = {
         "trigger_type": ttype,
         "gpio_pin":     pin if ttype == "gpio" else None,

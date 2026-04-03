@@ -861,7 +861,7 @@ function renderSoundTable(mp3s, staticIp) {
       </td>
         <td>
 <select onchange="dsChangeTimeout('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;width:70px">
-${[0,5,10,15,20,30,45,60,120,180,300].map(n => `<option value="${n}" ${f.timeout===n?'selected':''}>${n===0?'∞':n}s</option>`).join('')}
+${[0,5,10,15,20,30,45,60,120,180,300].map(n => `<option value="${n}" ${f.timeout===n||n===30?'selected':''}>${n===0?'∞':n}s</option>`).join('')}
 </select>
 </td>
       <td style="color:var(--t3);font-family:var(--mono);font-size:11px;white-space:nowrap">${f.size_kb} KB</td>
