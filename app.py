@@ -518,9 +518,6 @@ _term_lock = threading.Lock()
 # Default-Config erstellen falls nicht vorhanden
 _ensure_default_config()
 
-# Service-IP beim Start setzen
-ensure_service_ip()
-
 # Audio-Loopback sicherstellen (Line-In → Line-Out Passthrough)
 # In background thread to avoid blocking startup / watchdog timeout
 def _startup_loopback():
@@ -545,10 +542,13 @@ def _restore_volume():
     run(f"pactl set-source-volume {shlex.quote(src)} {vol_in}%")
     print(f"[AUDIO] Volume restored: out={vol_out}% in={vol_in}%", flush=True)
 
-_restore_volume()
-
-# Sleep/Suspend beim Start deaktivieren (headless, kein Display)
-run("systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null")
+# Service-IP, Volume und Sleep-Mask im Hintergrund – nicht blockierend beim Start
+def _startup_tasks():
+    time.sleep(0.5)
+    ensure_service_ip()
+    _restore_volume()
+    run("systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null")
+threading.Thread(target=_startup_tasks, daemon=True).start()
 
 # ── Trigger-Routen ────────────────────────────────────────────────────────────
 @app.route('/cgi-bin/index.cgi')
@@ -1143,21 +1143,23 @@ def api_upload():
 
     # 2. Parallel konvertieren — max. 4 ffmpeg-Prozesse gleichzeitig
     def convert(job):
-        cmd = (f"ffmpeg -y -i {shlex.quote(job['tmp'])} "
-               f"-ar 44100 -ac 1 -b:a 128k {shlex.quote(job['out_path'])} 2>&1")
-        r = run(cmd, timeout=120)
-        try: os.remove(job["tmp"])
-        except Exception: pass
-        if r["ok"] and os.path.isfile(job["out_path"]) and os.path.getsize(job["out_path"]) > 0:
-            return {"ok": True, "original": job["orig"],
-                    "saved_as": job["out_name"],
-                    "size_kb": os.path.getsize(job["out_path"]) // 1024}
-        else:
-            try: os.remove(job["out_path"])
+        try:
+            cmd = (f"ffmpeg -y -i {shlex.quote(job['tmp'])} "
+                   f"-ar 44100 -ac 1 -b:a 128k {shlex.quote(job['out_path'])} 2>&1")
+            r = run(cmd, timeout=120)
+            if r["ok"] and os.path.isfile(job["out_path"]) and os.path.getsize(job["out_path"]) > 0:
+                return {"ok": True, "original": job["orig"],
+                        "saved_as": job["out_name"],
+                        "size_kb": os.path.getsize(job["out_path"]) // 1024}
+            else:
+                try: os.remove(job["out_path"])
+                except Exception: pass
+                print(f"[FFMPEG] Conversion failed for {job['orig']}: {(r['out'] or r['err'])[:300]}", file=sys.stderr)
+                return {"ok": False, "original": job["orig"],
+                        "error": (r["out"] or r["err"])[:300]}
+        finally:
+            try: os.remove(job["tmp"])
             except Exception: pass
-            print(f"[FFMPEG] Conversion failed for {job['orig']}: {(r['out'] or r['err'])[:300]}", file=sys.stderr)
-            return {"ok": False, "original": job["orig"],
-                    "error": (r["out"] or r["err"])[:300]}
 
     results_map = {j["orig"]: j for j in jobs if "error" in j}  # Vorab-Fehler direkt
     convert_jobs = [j for j in jobs if "tmp" in j]
