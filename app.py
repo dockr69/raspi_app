@@ -1785,7 +1785,7 @@ def api_ap_mode():
         # Validierung
         if not ssid or len(ssid) < 4:
             return jsonify({"ok": False, "msg": "SSID zu kurz (min. 4 Zeichen)"}), 400
-        if enabled and (not password or len(password) < 8):
+        if enabled and password and len(password) < 8:
             return jsonify({"ok": False, "msg": "Passwort zu kurz (min. 8 Zeichen)"}), 400
 
         # Config speichern
@@ -1825,7 +1825,8 @@ def _start_ap(ssid, password):
     hostapd_conf = "/etc/hostapd/hostapd.conf"
     os.makedirs(os.path.dirname(hostapd_conf), exist_ok=True)
     with open(hostapd_conf, 'w') as f:
-        f.write(f"""interface=wlan0
+        if password:
+            f.write(f"""interface=wlan0
 driver=nl80211
 ssid={ssid}
 hw_mode=g
@@ -1838,6 +1839,16 @@ wpa_passphrase={password}
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=TKIP
 rsn_pairwise=CCMP
+""")
+        else:
+            f.write(f"""interface=wlan0
+driver=nl80211
+ssid={ssid}
+hw_mode=g
+channel=7
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
 """)
 
     # dnsmasq Config erstellen (DHCP Server)
