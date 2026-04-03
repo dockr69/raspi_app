@@ -1814,8 +1814,9 @@ def api_ap_mode():
 # ── AP Mode Helpers ───────────────────────────────────────────────────────────
 def _start_ap(ssid, password):
     """Startet WiFi Access Point auf wlan0 mit hostapd + dnsmasq."""
-    # wlan0 Interface erstellen
-    run("echo 0 | tee /sys/class/rfkill/rfkill1/state 2>/dev/null || true")
+    # rfkill unblock und wpa_supplicant stoppen (kollidiert mit hostapd)
+    run("rfkill unblock wifi 2>/dev/null || rfkill unblock all 2>/dev/null || true")
+    run("systemctl stop wpa_supplicant 2>/dev/null || true")
     run("ip link set wlan0 up 2>/dev/null || true")
 
     # WLAN-Interface konfigurieren (10.0.0.1 als Gateway)
@@ -1861,7 +1862,12 @@ dhcp-option=3,10.0.0.1
 dhcp-option=6,8.8.8.8
 """)
 
+    # hostapd default config setzen (damit systemd die richtige Datei lädt)
+    run("sed -i 's|#DAEMON_CONF=.*|DAEMON_CONF=\"/etc/hostapd/hostapd.conf\"|' /etc/default/hostapd 2>/dev/null || true")
+    run("grep -q 'DAEMON_CONF' /etc/default/hostapd 2>/dev/null || echo 'DAEMON_CONF=\"/etc/hostapd/hostapd.conf\"' >> /etc/default/hostapd")
+
     # hostapd starten
+    run("systemctl unmask hostapd 2>/dev/null || true")
     run("systemctl enable hostapd 2>/dev/null")
     run("systemctl restart hostapd 2>/dev/null || true")
 
@@ -1876,8 +1882,8 @@ def _stop_ap():
     """Stoppt WiFi Access Point."""
     run("systemctl stop hostapd 2>/dev/null || true")
     run("systemctl stop dnsmasq 2>/dev/null || true")
-    run("ip link set wlan0 down 2>/dev/null || true")
     run("ip addr flush dev wlan0 2>/dev/null || true")
+    run("systemctl start wpa_supplicant 2>/dev/null || true")
     print("[AP] Access Point gestoppt", flush=True)
 
 
