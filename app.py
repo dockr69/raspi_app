@@ -1530,7 +1530,8 @@ def api_update_status():
           "hash": current_hash,
           "message": current_msg,
           "date": current_date,
-          "behind": behind_count
+          "behind": behind_count,
+            "test": "Update-Test"
       })
 
 @app.route('/api/update/pull', methods=['POST'])
