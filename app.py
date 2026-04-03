@@ -480,7 +480,7 @@ def list_mp3s():
               "trigger_type": sc.get("trigger_type", "http"),
               "gpio_pin":     sc.get("gpio_pin", None),
               "repeat":       max(1, min(10, int(sc.get("repeat", 1)))),
-              "timeout":      max(0, min(300, int(sc.get("timeout", 0)))),
+              "timeout":      max(0, min(300, int(sc.get("timeout", 30)))),
           })
     return result
 
@@ -1264,7 +1264,7 @@ def _write_gpio_script(cfg):
             gpio_map[sc["gpio_pin"]] = {
                 "stem":    stem,
                 "repeat":  max(1, min(10, int(sc.get("repeat", 1)))),
-                "timeout": max(0, min(300, int(sc.get("timeout", 0)))),
+                "timeout": max(0, min(300, int(sc.get("timeout", 30)))),
             }
     if not gpio_map:
         run("systemctl stop raspi-audio-gpio 2>/dev/null")
