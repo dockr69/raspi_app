@@ -81,3 +81,10 @@ SERVICE_IP      = "10.0.0.10"
 ## GitHub
 
 `dockr69/raspi_app` – main branch
+
+## Wichtige Hinweise
+
+- **Niemals `Write` für große Code-Blöcke verwenden** – zerstört die Datei
+- **Immer `Edit`-Tool verwenden** für Änderungen
+- Bei komplexen Änderungen: Erst in Temp-Datei erstellen, syntax testen, dann einfügen
+- Backup-Funktionen separat in `_backup_export_zip()` und `_backup_import_zip()`
