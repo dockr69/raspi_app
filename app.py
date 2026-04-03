@@ -1819,8 +1819,9 @@ def _start_ap(ssid, password):
     run("systemctl stop wpa_supplicant 2>/dev/null || true")
     run("ip link set wlan0 up 2>/dev/null || true")
 
-    # WLAN-Interface konfigurieren (10.0.0.1 als Gateway)
+    # WLAN-Interface konfigurieren (Gateway + Service-IP)
     run("ip addr add 10.0.0.1/24 dev wlan0 2>/dev/null || true")
+    run(f"ip addr add {SERVICE_IP}/24 dev wlan0 label wlan0:service 2>/dev/null || true")
 
     # hostapd Config erstellen
     hostapd_conf = "/etc/hostapd/hostapd.conf"
