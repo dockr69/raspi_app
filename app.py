@@ -1508,16 +1508,18 @@ def api_reboot():
     return jsonify({"ok": True, "msg": "Neustart in 1 Sekunde..."})
 
 # ── API: Update (git pull) ──────────────────────────────────────────────────
+_GIT = "/usr/bin/git"
+
 @app.route('/api/update/status')
 def api_update_status():
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    commit  = run(f"git -C {shlex.quote(app_dir)} log -1 --format='%h|%s|%ci'")["out"].strip().strip("'")
+    commit  = run(f"{_GIT} -C {shlex.quote(app_dir)} log -1 --format=%h|%s|%ci")["out"].strip()
     parts   = commit.split("|", 2)
     current_hash = parts[0] if len(parts) > 0 else "?"
     current_msg  = parts[1] if len(parts) > 1 else "?"
     current_date = parts[2][:10] if len(parts) > 2 else "?"
-    run(f"git -C {shlex.quote(app_dir)} fetch origin main 2>/dev/null")
-    behind = run(f"git -C {shlex.quote(app_dir)} rev-list HEAD..origin/main --count")["out"].strip()
+    run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main 2>/dev/null", timeout=15)
+    behind = run(f"{_GIT} -C {shlex.quote(app_dir)} rev-list HEAD..origin/main --count")["out"].strip()
     try:
         behind_count = int(behind)
     except ValueError:
@@ -1532,7 +1534,7 @@ def api_update_status():
 @app.route('/api/update/pull', methods=['POST'])
 def api_update_pull():
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    r = run(f"git -C {shlex.quote(app_dir)} pull origin main 2>&1", timeout=60)
+    r = run(f"{_GIT} -C {shlex.quote(app_dir)} pull origin main 2>&1", timeout=60)
     if not r["ok"]:
         return jsonify({"ok": False, "msg": r["out"] or r["err"]})
     threading.Thread(
