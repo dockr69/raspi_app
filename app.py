@@ -216,12 +216,15 @@ def _load_secret_key():
                 pass
         k = secrets.token_hex(32)
         tmp = SECRET_KEY_FILE + ".tmp"
-        with open(tmp, 'w') as f:
-            f.write(k)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, SECRET_KEY_FILE)
-        os.chmod(SECRET_KEY_FILE, 0o600)
+        try:
+            with open(tmp, 'w') as f:
+                f.write(k)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, SECRET_KEY_FILE)
+            os.chmod(SECRET_KEY_FILE, 0o600)
+        except PermissionError:
+            pass
         return k
 
 app.secret_key = _load_secret_key()
