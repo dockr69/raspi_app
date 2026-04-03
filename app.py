@@ -1762,7 +1762,6 @@ for _tmp in globmod.glob("/tmp/_radxa_*"):
     except Exception:
         pass
 
-# ── Frontend ──────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     cfg = load_cfg()
@@ -1770,8 +1769,6 @@ def index():
                            service_ip=SERVICE_IP,
                            mode=cfg.get("mode", "online"))
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
 # ── API: AP Mode (WiFi Access Point) ───────────────────────────────────────────
 @app.route('/api/network/ap', methods=['GET', 'POST'])
 def api_ap_mode():
@@ -1871,3 +1868,8 @@ def _stop_ap():
     run("ip link set wlan0 down 2>/dev/null || true")
     run("ip addr flush dev wlan0 2>/dev/null || true")
     print("[AP] Access Point gestoppt", flush=True)
+
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=80, debug=False, threaded=True)

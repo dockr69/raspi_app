@@ -568,6 +568,30 @@ input[type=range]{accent-color:var(--acc);width:100%;cursor:pointer;height:4px}
         <span style="color:var(--t3)">Service-IP:</span> <b style="color:var(--warn)">10.0.0.10</b> (fest, nicht änderbar)<br>
         <span style="color:var(--t3)">mDNS:</span> <b style="color:var(--acc)" id="s-net-mdns">–</b>
       </div>
+      <div class="card">
+        <div class="card-title">📡 WLAN Access Point (AP Mode)</div>
+        <div class="frow">
+          <div class="flabel">AP Mode</div>
+          <div class="fwrap">
+            <select id="s-net-ap-mode">
+              <option value="disabled">Deaktiviert</option>
+              <option value="enabled">Aktiviert</option>
+            </select>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="flabel">SSID</div>
+          <div class="fwrap"><input type="text" id="s-net-ap-ssid" placeholder="z.B. raspi-ap" autocomplete="off"></div>
+        </div>
+        <div class="frow">
+          <div class="flabel">Passwort</div>
+          <div class="fwrap"><input type="password" id="s-net-ap-password" placeholder="min. 8 Zeichen" autocomplete="off"></div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-primary" onclick="sApplyAP()">✓ Anwenden</button>
+        </div>
+        <div class="spill" id="s-ap-status"></div>
+      </div>
     </div>
 
     <!-- ── Tab: Audio ── -->
@@ -1210,7 +1234,7 @@ async function loadSettingsData() {
   document.getElementById('s-net-gw').value = n.gateway || '192.168.1.1';
   document.getElementById('s-net-dns').value = n.dns || '8.8.8.8';
   // AP Mode
-  const ap = st.ap_mode || {};
+  const ap = st.config?.ap_mode || {};
   document.getElementById('s-net-ap-mode').value = ap.enabled ? 'enabled' : 'disabled';
   document.getElementById('s-net-ap-ssid').value = ap.ssid || '';
   document.getElementById('s-net-ap-password').value = ap.password || '';
@@ -1273,6 +1297,18 @@ async function sPingTest() {
   pill('s-net-status',`…Ping zu ${gw}`,'info');
   const r = await api('POST','/api/network/ping',{target:gw});
   pill('s-net-status', r.ok?`✓ ${gw} erreichbar`:`✗ kein Ping zu ${gw}`, r.ok?'ok':'err');
+}
+async function sApplyAP() {
+  const enabled = document.getElementById('s-net-ap-mode').value === 'enabled';
+  const ssid = document.getElementById('s-net-ap-ssid').value.trim();
+  const password = document.getElementById('s-net-ap-password').value;
+  pill('s-ap-status','…Anwenden','info');
+  const r = await api('POST','/api/network/ap', {enabled, ssid, password});
+  if (r.ok) {
+    pill('s-ap-status', enabled ? `✓ AP aktiv: ${ssid}` : '✓ AP deaktiviert', 'ok');
+  } else {
+    pill('s-ap-status','✗ '+(r.msg||'Fehler'),'err');
+  }
 }
 
 // Settings: Audio
