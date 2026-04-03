@@ -255,9 +255,9 @@ def load_cfg():
         with _cfg_lock:
             with open(CONFIG_FILE) as f:
                 cfg = json.load(f)
-                 # AP Mode default
-            if "ap_mode" not in cfg:
-                cfg["ap_mode"] = {"enabled": False, "ssid": "raspi-ap", "password": "raspi123"}
+                # AP Mode default
+                if "ap_mode" not in cfg:
+                    cfg["ap_mode"] = {"enabled": False, "ssid": "raspi-ap", "password": "raspi123"}
             return cfg
     except Exception:
         return {}
@@ -1818,7 +1818,8 @@ def api_ap_mode():
 def _start_ap(ssid, password):
     """Startet WiFi Access Point auf wlan0 mit hostapd + dnsmasq."""
     # wlan0 Interface erstellen
-    run("ip link set wlan0 up 2>/dev/null")
+    run("echo 0 | tee /sys/class/rfkill/rfkill1/state 2>/dev/null || true")
+    run("ip link set wlan0 up 2>/dev/null || true")
 
     # WLAN-Interface konfigurieren (10.0.0.1 als Gateway)
     run("ip addr add 10.0.0.1/24 dev wlan0 2>/dev/null || true")
@@ -1832,7 +1833,6 @@ driver=nl80211
 ssid={ssid}
 hw_mode=g
 channel=7
-wmm_mode=1
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
