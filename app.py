@@ -1487,7 +1487,7 @@ def api_audio_preview():
     r = run(f"parecord --channels=1 --rate=22050 --format=s16le "
             f"-d {shlex.quote(src)} --file-format=wav {shlex.quote(tmp)} &"
             f" RPID=$!; sleep 5; kill $RPID 2>/dev/null; wait $RPID 2>/dev/null",
-            timeout=15)
+            timeout=5)
     if os.path.isfile(tmp) and os.path.getsize(tmp) > 100:
         resp = send_file(tmp, mimetype='audio/wav')
         threading.Thread(target=lambda: (time.sleep(2), os.remove(tmp)),
@@ -1520,7 +1520,7 @@ def api_update_status():
     current_date = parts[2][:10] if len(parts) > 2 else "?"
 
        # Fetch remote updates
-    fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main", timeout=15)
+    fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main", timeout=5)
     if not fetch_result["ok"]:
         return jsonify({
               "hash": current_hash,
