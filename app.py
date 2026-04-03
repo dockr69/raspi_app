@@ -1578,25 +1578,24 @@ def api_update_pull():
     return jsonify({"ok": True, "msg": r["out"].strip()})
 
 # ── API: Backup / Restore ───────────────────────────────────────────────────
-# ── API: Backup / Restore ───────────────────────────────────────────────────
 def _backup_export_zip():
-      """Exportiert Config + Board + Texte + Sounds als ZIP. Returns BytesIO."""
+    """Exportiert Config + Board + Texte + Sounds als ZIP. Returns BytesIO."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-          # Config
+        # Config
         if os.path.isfile(CONFIG_FILE):
             zf.write(CONFIG_FILE, "config.json")
-         # Board Config
+        # Board Config
         if os.path.isfile(BOARD_FILE):
             zf.write(BOARD_FILE, "board.json")
-         # Text-Dateien
+        # Text-Dateien
         cfg_dir = os.path.dirname(CONFIG_FILE)
         if os.path.isdir(cfg_dir):
             for fn in os.listdir(cfg_dir):
                 fp = os.path.join(cfg_dir, fn)
                 if os.path.isfile(fp) and fn.endswith('.txt'):
                     zf.write(fp, f"texts/{fn}")
-         # Sounds
+        # Sounds
         for f in os.listdir(MP3_FOLDER):
             fp = os.path.join(MP3_FOLDER, f)
             if os.path.isfile(fp):
@@ -1605,26 +1604,26 @@ def _backup_export_zip():
     return buf
 
 def _backup_import_zip(zip_file):
-      """Importiert Config, Board, Texts, Sounds aus ZIP. Returns (ok, msg, texts_count, sounds_count)."""
+    """Importiert Config, Board, Texts, Sounds aus ZIP. Returns (ok, msg, texts_count, sounds_count)."""
     try:
-        MAX_ENTRY_SIZE = 200 * 1024 * 1024    # 200 MB pro Datei
+        MAX_ENTRY_SIZE = 200 * 1024 * 1024  # 200 MB pro Datei
         with zipfile.ZipFile(zip_file.stream, 'r') as zf:
-               # ZIP-Bomb-Schutz
+            # ZIP-Bomb-Schutz
             total_size = sum(i.file_size for i in zf.infolist())
-            if total_size > 2 * 1024 * 1024 * 1024:    # 2 GB
+            if total_size > 2 * 1024 * 1024 * 1024:  # 2 GB
                 return False, "ZIP zu gross (max 2 GB unkomprimiert)", 0, 0
             names = zf.namelist()
             texts_imported = 0
             sounds_imported = 0
-               # Config importieren
+            # Config importieren
             if "config.json" in names:
                 cfg_data = json.loads(zf.read("config.json"))
                 save_cfg(cfg_data)
-               # Board Config importieren
+            # Board Config importieren
             if "board.json" in names:
                 board_data = json.loads(zf.read("board.json"))
                 save_cfg(board_data)
-               # Text-Dateien importieren
+            # Text-Dateien importieren
             cfg_dir = os.path.dirname(CONFIG_FILE)
             for name in names:
                 if name.startswith("texts/") and name.endswith('.txt'):
@@ -1634,7 +1633,7 @@ def _backup_import_zip(zip_file):
                         with open(target, "wb") as out:
                             out.write(zf.read(name))
                         texts_imported += 1
-               # Sounds importieren
+            # Sounds importieren
             for name in names:
                 if name.startswith("sounds/") and name.endswith(".mp3"):
                     info = zf.getinfo(name)
@@ -1652,13 +1651,13 @@ def _backup_import_zip(zip_file):
 
 @app.route('/api/backup/export')
 def api_backup_export():
-      """Exportiert Config + Board + Texte + Sounds als ZIP."""
+    """Exportiert Config + Board + Texte + Sounds als ZIP."""
     return send_file(_backup_export_zip(), mimetype='application/zip',
                      as_attachment=True, download_name='radxa_backup.zip')
 
 @app.route('/api/backup/import', methods=['POST'])
 def api_backup_import():
-      """Importiert Config + Board + Texte + Sounds aus ZIP."""
+    """Importiert Config + Board + Texte + Sounds aus ZIP."""
     if 'file' not in request.files:
         return jsonify({"ok": False, "msg": "Keine Datei"}), 400
     ok, msg, texts, sounds = _backup_import_zip(request.files['file'])
