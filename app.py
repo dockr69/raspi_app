@@ -1518,20 +1518,9 @@ def api_update_status():
     current_hash = parts[0] if len(parts) > 0 else "?"
     current_msg    = parts[1] if len(parts) > 1 else "?"
     current_date = parts[2][:10] if len(parts) > 2 else "?"
+    current_date = parts[2][:10] if len(parts) > 2 else "?"
 
-       # Fetch remote updates
-    fetch_result = run(f"{_GIT} -C {shlex.quote(app_dir)} fetch origin main 2>&1", timeout=5)
-    sys.stderr.write(f"[UPDATE] fetch ok={fetch_result['ok']} out={fetch_result['out']!r} err={fetch_result['err']!r}\n")
-    sys.stderr.flush()
-    if not fetch_result["ok"]:
-        return jsonify({
-              "hash": current_hash,
-              "message": current_msg,
-              "date": current_date,
-              "behind": 0,
-              "error": "Netzwerkfehler – kein Zugriff auf GitHub"
-          })
-
+    # Skip network fetch - just show current commit (GitHub may be unreachable)
     behind = run(f"{_GIT} -C {shlex.quote(app_dir)} rev-list HEAD..origin/main --count")["out"].strip()
     try:
         behind_count = int(behind)
