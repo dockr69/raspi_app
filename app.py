@@ -1819,9 +1819,13 @@ def _start_ap(ssid, password):
     run("systemctl stop wpa_supplicant 2>/dev/null || true")
     run("ip link set wlan0 up 2>/dev/null || true")
 
-    # WLAN-Interface konfigurieren (Gateway + Service-IP)
+    # Service-IP von eth0 entfernen (verhindert asymmetrisches Routing)
+    run(f"ip addr del {SERVICE_IP}/32 dev eth0 2>/dev/null || true")
+    run(f"ip addr del {SERVICE_IP}/24 dev eth0 2>/dev/null || true")
+
+    # WLAN-Interface konfigurieren (Gateway + Service-IP auf wlan0)
     run("ip addr add 10.0.0.1/24 dev wlan0 2>/dev/null || true")
-    run(f"ip addr add {SERVICE_IP}/24 dev wlan0 label wlan0:service 2>/dev/null || true")
+    run(f"ip addr add {SERVICE_IP}/32 dev wlan0 label wlan0:service 2>/dev/null || true")
 
     # hostapd Config erstellen
     hostapd_conf = "/etc/hostapd/hostapd.conf"
@@ -1853,14 +1857,15 @@ auth_algs=1
 ignore_broadcast_ssid=0
 """)
 
-    # dnsmasq Config erstellen (DHCP Server)
+    # dnsmasq Config erstellen (DHCP Server, 10.0.0.10 aus Range ausschliessen)
     dnsmasd_conf = "/etc/dnsmasq.d/raspi-ap.conf"
     os.makedirs(os.path.dirname(dnsmasd_conf), exist_ok=True)
     with open(dnsmasd_conf, 'w') as f:
         f.write(f"""interface=wlan0
-dhcp-range=10.0.0.2,10.0.0.254,255.255.255.0,12h
+dhcp-range=10.0.0.11,10.0.0.254,255.255.255.0,12h
 dhcp-option=3,10.0.0.1
-dhcp-option=6,8.8.8.8
+dhcp-option=6,10.0.0.1
+address=/{ssid}.local/10.0.0.10
 """)
 
     # hostapd default config setzen (damit systemd die richtige Datei lädt)
@@ -1884,6 +1889,10 @@ def _stop_ap():
     run("systemctl stop hostapd 2>/dev/null || true")
     run("systemctl stop dnsmasq 2>/dev/null || true")
     run("ip addr flush dev wlan0 2>/dev/null || true")
+    # Service-IP zurück auf eth0
+    cfg = load_cfg()
+    iface = cfg.get("network", {}).get("interface", "eth0")
+    run(f"ip addr add {SERVICE_IP}/24 dev {iface} label {iface}:service 2>/dev/null || true")
     run("systemctl start wpa_supplicant 2>/dev/null || true")
     print("[AP] Access Point gestoppt", flush=True)
 
