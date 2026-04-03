@@ -841,41 +841,37 @@ function renderSoundTable(mp3s, staticIp) {
     const curType = f.trigger_type || 'http';
     const curPin  = f.gpio_pin ?? '';
     return `<tr data-stem="${esc(f.stem)}">
-      <td>
-        <div style="display:flex;align-items:center;gap:8px">
-          <button class="btn btn-primary btn-sm" style="padding:3px 8px" onclick="dsPlaySound('${esc(f.name)}')">▶</button>
-          <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="dsPreviewSound('${esc(f.name)}')">🔊</button>
-          <span style="font-family:var(--mono);font-size:13px">${esc(f.name)}</span>
-        </div>
-      </td>
-      <td>
-        <select onchange="dsChangeTrigger('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;min-width:130px">
-          <option value="http" ${curType==='http'?'selected':''}>🌐 HTTP</option>
-          ${GPIO_PINS.map(p => `<option value="gpio:${p}" ${curType==='gpio'&&curPin==p?'selected':''}>🔌 GPIO ${p}</option>`).join('')}
-        </select>
-      </td>
-      <td>
-        <select onchange="dsChangeRepeat('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;width:60px">
-          ${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${f.repeat===n?'selected':''}>${n}×</option>`).join('')}
-        </select>
-      </td>
-        <td>
-<select onchange="dsChangeTimeout('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;width:70px">
-${[0,5,10,15,20,30,45,60,120,180,300].map(n => `<option value="${n}" ${f.timeout===n||n===30?'selected':''}>${n===0?'∞':n}s</option>`).join('')}
+           <td style="font-family:var(--mono);font-size:11px;color:var(--t2)">${f.id}</td>
+           <td>
+<div style="display:flex;align-items:center;gap:8px">
+<button class="btn btn-primary btn-sm" style="padding:3px 8px" onclick="dsPlaySound(${f.id})">▶</button>
+<button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="dsPreviewSound('${esc(f.name)}')">🔊</button>
+<span style="font-family:var(--mono);font-size:13px">${esc(f.name)}</span>
+</div>
+</td>
+           <td>
+<select onchange="dsChangeTrigger('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;min-width:130px">
+<option value="http" ${curType==='http'?'selected':''}>🌐 HTTP</option>
+${GPIO_PINS.map(p => `<option value="gpio:${p}" ${curType==='gpio'&&curPin==p?'selected':''}>🔌 GPIO ${p}</option>`).join('')}
 </select>
 </td>
-      <td style="color:var(--t3);font-family:var(--mono);font-size:11px;white-space:nowrap">${f.size_kb} KB</td>
-      <td>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')" title="Umbenennen">✎</button>
-          <button class="btn btn-danger btn-sm" style="padding:3px 8px" onclick="deleteMp3('${esc(f.name)}')" title="Loeschen">✕</button>
-        </div>
-      </td>
-    </tr>`;
+           <td>
+<select onchange="dsChangeRepeat('${esc(f.stem)}',this.value)" style="font-size:12px;padding:4px 8px;width:60px">
+${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${f.repeat===n?'selected':''}>${n}×</option>`).join('')}
+</select>
+</td>
+           <td style="color:var(--t3);font-family:var(--mono);font-size:11px;white-space:nowrap">${f.size_kb} KB</td>
+           <td>
+<div style="display:flex;gap:4px">
+<button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="openRename('${esc(f.name)}','${esc(f.stem)}')" title="Umbenennen">✎</button>
+<button class="btn btn-danger btn-sm" style="padding:3px 8px" onclick="deleteMp3('${esc(f.name)}')" title="Loeschen">✕</button>
+</div>
+</td>
+</tr>`;
   }).join('');
   body.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--t3);margin-bottom:6px">${filtered.length}${search?' gefiltert':''} von ${mp3s.length} Sounds</div>
   <table class="sound-table">
-    <thead><tr><th>Sound</th><th>Trigger</th><th>Repeat</th><th>Timeout</th><th>Groesse</th><th></th></tr></thead>
+    <thead><tr><th>ID</th><th>Sound</th><th>Trigger</th><th>Repeat</th><th>Groesse</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -909,8 +905,8 @@ async function dsChangeTimeout(stem, val) {
   const st = document.getElementById('ds-static-ip')?.textContent || '';
   renderSoundTable(_dsSounds, st);
 }
-async function dsPlaySound(name) {
-  await api('POST','/api/mp3s/play',{name});
+async function dsPlaySound(id) {
+  await api('POST','/api/mp3s/play-id',{id});
 }
 function dsPreviewSound(name) {
   const a = new Audio(`/api/mp3s/stream/${encodeURIComponent(name)}`);

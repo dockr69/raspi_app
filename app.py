@@ -467,23 +467,22 @@ def list_mp3s():
     cfg = load_cfg()
     sounds = cfg.get("sounds", {})
     result = []
-    for f in sorted(os.listdir(MP3_FOLDER)):
+    for idx, f in enumerate(sorted(os.listdir(MP3_FOLDER)), start=1):
         if not f.lower().endswith('.mp3'):
             continue
         stem = f[:-4]
         sc   = sounds.get(stem, {})
         result.append({
-            "name":         f,
-            "stem":         stem,
-            "size_kb":      os.path.getsize(os.path.join(MP3_FOLDER, f)) // 1024,
-            "trigger_type": sc.get("trigger_type", "http"),
-            "gpio_pin":     sc.get("gpio_pin", None),
-            "repeat":       max(1, min(10, int(sc.get("repeat", 1)))),
-            "timeout":      max(0, min(300, int(sc.get("timeout", 0)))),
-        })
+              "id":           idx,
+              "name":         f,
+              "stem":         stem,
+              "size_kb":      os.path.getsize(os.path.join(MP3_FOLDER, f)) // 1024,
+              "trigger_type": sc.get("trigger_type", "http"),
+              "gpio_pin":     sc.get("gpio_pin", None),
+              "repeat":       max(1, min(10, int(sc.get("repeat", 1)))),
+              "timeout":      max(0, min(300, int(sc.get("timeout", 0)))),
+          })
     return result
-
-_play_lock = threading.Lock()
 
 def _play_thread(path, source, repeat=1):
     repeat = max(1, min(10, int(repeat)))
@@ -499,22 +498,32 @@ def _play_thread(path, source, repeat=1):
 
 def trigger_play(name):
     """Zentraler Play-Einstiegspunkt. Gibt (ok, msg) zurück."""
-    # MP3 suchen
-    stem = sanitize(os.path.splitext(name)[0])
-    path = os.path.join(MP3_FOLDER, stem + ".mp3")
-    if not os.path.isfile(path):
-        # Fallback: unsanitized, aber sicher
-        safe_name = os.path.basename(name if name.endswith('.mp3') else name + '.mp3')
-        p2 = _safe_mp3_path(safe_name)
-        if p2 and os.path.isfile(p2):
-            path = p2
-            stem = os.path.basename(path)[:-4]
-        else:
-            return False, f"MP3 nicht gefunden: {name}"
+    # ID-basiert: '1' → erste MP3, '1.mp3' → erste MP3
+    name_clean = name.strip()
+    if name_clean.isdigit():
+        sounds = list_mp3s()
+        try:
+            sound = next(s for s in sounds if str(s['id']) == name_clean)
+            stem = sound['stem']
+            path = os.path.join(MP3_FOLDER, stem + ".mp3")
+        except StopIteration:
+            return False, f"MP3 mit ID {name_clean} nicht gefunden"
+    else:
+        stem = sanitize(os.path.splitext(name)[0])
+        path = os.path.join(MP3_FOLDER, stem + ".mp3")
+        if not os.path.isfile(path):
+            # Fallback: unsanitized, aber sicher
+            safe_name = os.path.basename(name if name.endswith('.mp3') else name + '.mp3')
+            p2 = _safe_mp3_path(safe_name)
+            if p2 and os.path.isfile(p2):
+                path = p2
+                stem = os.path.basename(path)[:-4]
+            else:
+                return False, f"MP3 nicht gefunden: {name}"
 
     cfg = load_cfg()
     src = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
-    sc  = cfg.get("sounds", {}).get(stem, {})
+    sc   = cfg.get("sounds", {}).get(stem, {})
 
     # Wenn GPIO-only → HTTP-Trigger blockieren
     if sc.get("trigger_type") == "gpio":
@@ -523,6 +532,7 @@ def trigger_play(name):
     repeat = max(1, min(10, int(sc.get("repeat", 1))))
     threading.Thread(target=_play_thread, args=(path, src, repeat), daemon=True).start()
     return True, os.path.basename(path)
+
 
 # ── Terminal-State ────────────────────────────────────────────────────────────
 _term_cwd  = ["/root"]
@@ -575,14 +585,18 @@ def cgi_trigger():
         return 'ERROR: Offline-Modus – kein HTTP-Trigger', 403
     webif_pass  = request.args.get('webif-pass', '')
     spotrequest = request.args.get('spotrequest', '')
-    if not spotrequest:
-        return 'ERROR: missing spotrequest', 400
-    # Optionaler Passwortschutz
+    sound_id      = request.args.get('id', '')
+    if not spotrequest and not sound_id:
+        return 'ERROR: missing spotrequest or id', 400
     cfg = load_cfg()
     expected = str(cfg.get("trigger", {}).get("webif_pass", "1"))
     if webif_pass != expected:
         return 'ERROR: unauthorized', 403
-    ok, msg = trigger_play(spotrequest)
+     # ID-Trigger priorisieren
+    if sound_id and sound_id.isdigit():
+        ok, msg = trigger_play(sound_id)
+    else:
+        ok, msg = trigger_play(spotrequest)
     return (f"OK:{msg}", 200) if ok else (f"ERROR:{msg}", 404)
 
 @app.route('/play/<mp3name>')
@@ -1005,6 +1019,23 @@ def api_mp3_play():
     src    = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
     stem   = os.path.basename(path)[:-4]
     repeat = max(1, min(10, int(cfg.get("sounds", {}).get(stem, {}).get("repeat", 1))))
+    threading.Thread(target=_play_thread, args=(path, src, repeat), daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route('/api/mp3s/play-id', methods=['POST'])
+def api_mp3_play_id():
+    """Play sound by ID."""
+    sound_id = request.json.get("id", 0)
+    sounds = list_mp3s()
+    try:
+        sound = next(s for s in sounds if s['id'] == sound_id)
+    except StopIteration:
+        return jsonify({"ok": False, "msg": f"Sound mit ID {sound_id} nicht gefunden"}), 404
+    path = os.path.join(MP3_FOLDER, sound['stem'] + ".mp3")
+    cfg     = load_cfg()
+    src     = cfg.get("audio", {}).get("source", "@DEFAULT_SOURCE@")
+    repeat = max(1, min(10, int(cfg.get("sounds", {}).get(sound['stem'], {}).get("repeat", 1))))
     threading.Thread(target=_play_thread, args=(path, src, repeat), daemon=True).start()
     return jsonify({"ok": True})
 
