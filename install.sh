@@ -107,7 +107,7 @@ PACKAGES=(
   "python3-pip" "python3-flask" "ffmpeg" "mpg123"
   "openssh-server" "avahi-daemon" "avahi-utils"
   "pulseaudio" "pulseaudio-utils"
-  "mc"
+  "mc" "hostapd" "dnsmasq"
 )
 
 log "Installiere Systempakete..."

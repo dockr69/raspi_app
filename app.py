@@ -254,7 +254,11 @@ def load_cfg():
     try:
         with _cfg_lock:
             with open(CONFIG_FILE) as f:
-                return json.load(f)
+                cfg = json.load(f)
+                # AP Mode default
+                if "ap_mode" not in cfg:
+                    cfg["ap_mode"] = {"enabled": False, "ssid": "raspi-ap", "password": "raspi123"}
+            return cfg
     except Exception:
         return {}
 
@@ -1758,7 +1762,6 @@ for _tmp in globmod.glob("/tmp/_radxa_*"):
     except Exception:
         pass
 
-# ── Frontend ──────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     cfg = load_cfg()
@@ -1766,5 +1769,134 @@ def index():
                            service_ip=SERVICE_IP,
                            mode=cfg.get("mode", "online"))
 
+# ── API: AP Mode (WiFi Access Point) ───────────────────────────────────────────
+@app.route('/api/network/ap', methods=['GET', 'POST'])
+def api_ap_mode():
+    """GET: AP Status, POST: AP aktivieren/deaktivieren"""
+    cfg = load_cfg()
+    ap = cfg.get("ap_mode", {"enabled": False, "ssid": "raspi-ap", "password": "raspi123"})
+
+    if request.method == 'POST':
+        d = request.json or {}
+        enabled = d.get("enabled", False)
+        ssid = d.get("ssid", "raspi-ap")
+        password = d.get("password", "raspi123")
+
+        # Validierung
+        if not ssid or len(ssid) < 4:
+            return jsonify({"ok": False, "msg": "SSID zu kurz (min. 4 Zeichen)"}), 400
+        if enabled and password and len(password) < 8:
+            return jsonify({"ok": False, "msg": "Passwort zu kurz (min. 8 Zeichen)"}), 400
+
+        # Config speichern
+        cfg["ap_mode"] = {
+            "enabled": enabled,
+            "ssid": ssid,
+            "password": password,
+        }
+        save_cfg(cfg)
+
+        # AP starten/stoppen
+        if enabled:
+            _start_ap(ssid, password)
+        else:
+            _stop_ap()
+
+        return jsonify({"ok": True, "enabled": enabled, "ssid": ssid})
+
+    return jsonify({
+        "enabled": ap.get("enabled", False),
+        "ssid": ap.get("ssid", "raspi-ap"),
+        "password": ap.get("password", "raspi123"),
+    })
+
+
+# ── AP Mode Helpers ───────────────────────────────────────────────────────────
+def _start_ap(ssid, password):
+    """Startet WiFi Access Point auf wlan0 mit hostapd + dnsmasq."""
+    # rfkill unblock und wpa_supplicant stoppen (kollidiert mit hostapd)
+    run("rfkill unblock wifi 2>/dev/null || rfkill unblock all 2>/dev/null || true")
+    run("systemctl stop wpa_supplicant 2>/dev/null || true")
+    run("ip link set wlan0 up 2>/dev/null || true")
+
+    # Service-IP von eth0 entfernen (verhindert asymmetrisches Routing)
+    run(f"ip addr del {SERVICE_IP}/32 dev eth0 2>/dev/null || true")
+    run(f"ip addr del {SERVICE_IP}/24 dev eth0 2>/dev/null || true")
+
+    # WLAN-Interface konfigurieren (Gateway + Service-IP auf wlan0)
+    run("ip addr add 10.0.0.1/24 dev wlan0 2>/dev/null || true")
+    run(f"ip addr add {SERVICE_IP}/32 dev wlan0 label wlan0:service 2>/dev/null || true")
+
+    # hostapd Config erstellen
+    hostapd_conf = "/etc/hostapd/hostapd.conf"
+    os.makedirs(os.path.dirname(hostapd_conf), exist_ok=True)
+    with open(hostapd_conf, 'w') as f:
+        if password:
+            f.write(f"""interface=wlan0
+driver=nl80211
+ssid={ssid}
+hw_mode=g
+channel=7
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase={password}
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+""")
+        else:
+            f.write(f"""interface=wlan0
+driver=nl80211
+ssid={ssid}
+hw_mode=g
+channel=7
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+""")
+
+    # dnsmasq Config erstellen (DHCP Server, 10.0.0.10 aus Range ausschliessen)
+    dnsmasd_conf = "/etc/dnsmasq.d/raspi-ap.conf"
+    os.makedirs(os.path.dirname(dnsmasd_conf), exist_ok=True)
+    with open(dnsmasd_conf, 'w') as f:
+        f.write(f"""interface=wlan0
+dhcp-range=10.0.0.11,10.0.0.254,255.255.255.0,12h
+dhcp-option=3,10.0.0.1
+dhcp-option=6,10.0.0.1
+address=/{ssid}.local/10.0.0.10
+""")
+
+    # hostapd default config setzen (damit systemd die richtige Datei lädt)
+    run("sed -i 's|#DAEMON_CONF=.*|DAEMON_CONF=\"/etc/hostapd/hostapd.conf\"|' /etc/default/hostapd 2>/dev/null || true")
+    run("grep -q 'DAEMON_CONF' /etc/default/hostapd 2>/dev/null || echo 'DAEMON_CONF=\"/etc/hostapd/hostapd.conf\"' >> /etc/default/hostapd")
+
+    # hostapd starten
+    run("systemctl unmask hostapd 2>/dev/null || true")
+    run("systemctl enable hostapd 2>/dev/null")
+    run("systemctl restart hostapd 2>/dev/null || true")
+
+    # dnsmasq starten
+    run("systemctl enable dnsmasq 2>/dev/null")
+    run("systemctl restart dnsmasq 2>/dev/null || true")
+
+    print(f"[AP] Access Point gestartet: SSID={ssid}", flush=True)
+
+
+def _stop_ap():
+    """Stoppt WiFi Access Point."""
+    run("systemctl stop hostapd 2>/dev/null || true")
+    run("systemctl stop dnsmasq 2>/dev/null || true")
+    run("ip addr flush dev wlan0 2>/dev/null || true")
+    # Service-IP zurück auf eth0
+    cfg = load_cfg()
+    iface = cfg.get("network", {}).get("interface", "eth0")
+    run(f"ip addr add {SERVICE_IP}/24 dev {iface} label {iface}:service 2>/dev/null || true")
+    run("systemctl start wpa_supplicant 2>/dev/null || true")
+    print("[AP] Access Point gestoppt", flush=True)
+
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
